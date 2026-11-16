@@ -1,9 +1,13 @@
 export interface UpdateResult {
-  status: 'dev' | 'unavailable' | 'noconfig' | 'available' | 'latest' | 'error';
+  status: 'dev' | 'unavailable' | 'noconfig' | 'available' | 'manual' | 'latest' | 'error';
   message: string;
   version?: string;
   /** 安装包已经下载到本地：直接进入重启安装流程，不要再显示「下载更新」 */
   downloaded?: boolean;
+  /** 当前安装包没有自动更新组件，只能打开发布页手动下载 */
+  manual?: boolean;
+  /** 手动下载时要打开的页面 */
+  url?: string;
 }
 
 /** 主进程推送的更新进度：下载百分比、下载完成、失败 */
@@ -384,7 +388,7 @@ export interface DesktopBridge {
   installUpdate: () => Promise<{ ok: boolean; message?: string }>;
   onUpdateProgress: (cb: (progress: UpdateProgress) => void) => () => void;
   /** 自动检查发现新版本时触发：主窗口弹窗让用户选择安装或忽略 */
-  onUpdateAvailable?: (cb: (info: { version: string }) => void) => () => void;
+  onUpdateAvailable?: (cb: (info: { version: string; manual?: boolean }) => void) => () => void;
   /** 忽略当前版本，之后只有更新的版本才会提醒 */
   ignoreUpdate?: (version: string) => Promise<boolean>;
   /** 主进程最近一次自动检查发现的新版本，以及已忽略的版本 */

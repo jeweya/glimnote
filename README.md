@@ -123,6 +123,7 @@ npm run mcp:http       # HTTP: http://127.0.0.1:8765/mcp
 npm run typecheck      # TypeScript 类型检查
 npm run test:mcp       # MCP 冒烟测试（HTTP / 灵感日记 / AI 小应用）
 npm run test:ui        # 设置页界面走查（Playwright，需先执行 npx playwright install chromium）
+npm run release:verify # 校验 app.asar 是否带自动更新组件、与 latest.yml 是否一致（electron:build 会自动执行）
 ```
 
 桌面端首次启动会在「文档」下创建 `glimnote` 文件夹，所有笔记都是普通文件，可以随时备份或用其它编辑器打开。

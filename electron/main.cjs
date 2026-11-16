@@ -235,6 +235,10 @@ let lastAvailableVersion = '';
 let notifiedUpdateVersion = '';
 /** 解析出来的最新版本下载目录；每次进程只查一次，检查更新时刷新 */
 let updateFeedBase = '';
+/** require('electron-updater') 失败时的原始原因，用于日志和界面兜底说明 */
+let updaterLoadError = '';
+/** GitCode Releases 页面：更新组件不可用时让用户手动下载 */
+const RELEASES_PAGE = 'https://gitcode.com/jewey/glimnote/releases';
 /** 系统通知的对象要留住引用，否则可能在用户点击前被回收 */
 const liveNotifications = new Set();
 
@@ -2566,7 +2570,14 @@ function getUpdater() {
   let autoUpdater;
   try {
     autoUpdater = require('electron-updater').autoUpdater;
-  } catch {
+  } catch (e) {
+    // 以前这里静默返回 null，缺组件时只剩一句「未安装更新组件」，查不到是哪一层失败
+    updaterLoadError = String((e && e.message) || e);
+    try {
+      logFile.write('app', 'warn', `更新组件加载失败：${updaterLoadError.slice(0, 200)}`);
+    } catch {
+      /* 日志写不进去也不能影响检查更新 */
+    }
     return null;
   }
   autoUpdater.autoDownload = false;
@@ -2653,7 +2664,37 @@ async function checkUpdate() {
   }
   const updater = getUpdater();
   if (!updater) {
-    return { status: 'unavailable', message: '未安装更新组件 electron-updater，无法检查更新。' };
+    // 更新组件缺失（历史上 0.1.16 的 asar 没带 node_modules）时仍然查一次 GitCode：
+    // 至少告诉用户有没有新版本、应该去哪里手动下载，而不是只回一句「无法检查」。
+    const reason = updaterLoadError
+      ? `自动更新组件加载失败（${updaterLoadError.slice(0, 120)}）`
+      : '当前安装包缺少自动更新组件';
+    try {
+      const base = await resolveUpdateFeed();
+      const tag = decodeURIComponent(String(base.split('/').pop() || '')).trim();
+      const latest = tag.replace(/^v/i, '');
+      if (latest && isNewerVersion(latest, app.getVersion())) {
+        lastAvailableVersion = latest;
+        return {
+          status: 'manual',
+          message: `发现新版本 ${latest}，但${reason}，无法自动下载。请打开发布页手动下载安装包。`,
+          version: latest,
+          manual: true,
+          url: RELEASES_PAGE,
+        };
+      }
+      return {
+        status: 'latest',
+        message: `已是最新版本 ${app.getVersion()}（${reason}，本次为手动检查）`,
+      };
+    } catch (e) {
+      logFile.write('app', 'warn', `更新组件缺失且查询发布页失败：${String((e && e.message) || e).slice(0, 200)}`);
+      return {
+        status: 'unavailable',
+        message: `${reason}，也连不上发布页：${friendlyUpdateError(e, '请稍后重试。')}`,
+        url: RELEASES_PAGE,
+      };
+    }
   }
   try {
     // 先解析最新 tag，再把 feed 指到对应版本的目录；GitCode 没有 latest 直链
@@ -2696,10 +2737,10 @@ async function ignoreUpdateVersion(version) {
  * 有新版本时让主窗口直接弹窗，由用户选择「立即更新 / 稍后 / 忽略此版本」。
  * 不再用右下角系统通知：通知容易被忽略，也看不出安装说明。
  */
-function offerUpdate(version) {
+function offerUpdate(version, manual = false) {
   const target = mainWindow;
   if (!target || target.isDestroyed() || target.webContents.isDestroyed()) return false;
-  sendToMain('app:update-available', { version: String(version || '') });
+  sendToMain('app:update-available', { version: String(version || ''), manual: Boolean(manual) });
   return true;
 }
 
@@ -2711,14 +2752,19 @@ async function autoCheckUpdate() {
   if (!app.isPackaged) return;
   try {
     const result = await checkUpdate();
-    if (result.status !== 'available' || !result.version) return;
+    const manual = result.status === 'manual';
+    if ((result.status !== 'available' && !manual) || !result.version) return;
     const ignored = String((await readPrefs()).ignoredUpdateVersion || '');
     if (ignored === result.version) return;
     if (notifiedUpdateVersion === result.version) return;
     notifiedUpdateVersion = result.version;
     // 主窗口收在托盘里时先不打扰，等用户下次打开界面时这次提醒仍会挂在状态里
-    offerUpdate(result.version);
-    logFile.write('app', 'info', `发现新版本 ${result.version}，已提醒用户`);
+    offerUpdate(result.version, manual);
+    logFile.write(
+      'app',
+      'info',
+      `发现新版本 ${result.version}${manual ? '（当前安装包只能手动下载）' : ''}，已提醒用户`,
+    );
   } catch (e) {
     logFile.write('app', 'warn', `自动检查更新失败：${(e && e.message) || e}`);
   }
@@ -2736,7 +2782,7 @@ function scheduleAutoUpdateCheck() {
 async function downloadUpdate() {
   const updater = getUpdater();
   if (!updater) {
-    return { ok: false, message: '更新组件不可用，请重新安装完整版本。' };
+    return { ok: false, message: '更新组件不可用，请打开发布页手动下载完整安装包。' };
   }
   // 已经下载好：重新发一次 downloaded，避免界面停在「正在下载」的转圈上
   if (updateDownloaded) {

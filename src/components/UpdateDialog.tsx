@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Download, Loader2, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, Download, ExternalLink, Loader2, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { desktop } from '../lib/desktop';
 import { useT } from '../lib/i18n';
 
@@ -21,6 +21,8 @@ export function UpdateDialog() {
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(0);
+  /** 当前安装包缺少自动更新组件：只能打开发布页手动下载 */
+  const [manual, setManual] = useState(false);
   /** 下载完成后是否自动倒计时安装；用户点「取消自动安装」后改为手动 */
   const [autoInstall, setAutoInstall] = useState(false);
   /** 只有用户在弹窗里点了「立即更新」，才接管进度并自动安装 */
@@ -32,6 +34,7 @@ export function UpdateDialog() {
       const next = String(info?.version || '');
       engaged.current = false;
       setVersion(next);
+      setManual(Boolean(info?.manual));
       setPhase('available');
       setPercent(0);
       setError('');
@@ -120,6 +123,11 @@ export function UpdateDialog() {
     setOpen(false);
   };
 
+  const openReleasePage = async () => {
+    await bridge?.openExternal?.('https://gitcode.com/jewey/glimnote/releases');
+    dismiss();
+  };
+
   const installNow = async () => {
     if (!bridge?.installUpdate) return;
     setAutoInstall(false);
@@ -154,7 +162,9 @@ export function UpdateDialog() {
             <div className="modal-desc">
               {ready || installing
                 ? t('更新已下载完成。')
-                : t('新版本包含功能改进与问题修复，更新不会影响本地笔记。')}
+                : manual
+                  ? t('当前安装包缺少自动更新组件，请打开发布页手动下载安装包；笔记不会受影响。')
+                  : t('新版本包含功能改进与问题修复，更新不会影响本地笔记。')}
             </div>
           </div>
           {!downloading && !installing && (
@@ -216,9 +226,15 @@ export function UpdateDialog() {
               <button className="btn btn-ghost" onClick={dismiss}>
                 {t('稍后提醒')}
               </button>
-              <button className="btn btn-primary" onClick={() => void startDownload()}>
-                <Download size={14} /> {t('立即更新')}
-              </button>
+              {manual ? (
+                <button className="btn btn-primary" onClick={() => void openReleasePage()}>
+                  <ExternalLink size={14} /> {t('打开发布页')}
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={() => void startDownload()}>
+                  <Download size={14} /> {t('立即更新')}
+                </button>
+              )}
             </>
           )}
           {downloading && (
@@ -254,8 +270,11 @@ export function UpdateDialog() {
               <button className="btn btn-ghost" onClick={dismiss}>
                 {t('关闭')}
               </button>
-              <button className="btn btn-primary" onClick={() => void startDownload()}>
-                <RefreshCw size={14} /> {t('重试')}
+              <button
+                className="btn btn-primary"
+                onClick={() => void (manual ? openReleasePage() : startDownload())}
+              >
+                {manual ? <ExternalLink size={14} /> : <RefreshCw size={14} />} {manual ? t('打开发布页') : t('重试')}
               </button>
             </>
           )}

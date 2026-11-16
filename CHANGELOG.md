@@ -3,6 +3,14 @@
 每个版本的改动按版本号分节。打包时 `npm run release:folder` 会把对应小节提取到
 `release/vX.Y.Z/更新说明.md`，发版时和安装包一起上传。
 
+## 未发布
+
+### 修复
+
+- 打包新增自动校验：`electron:build` 结束后会自动打开 `app.asar`，确认里面真的有 `electron-updater` 及其关键运行时依赖，并核对应用版本、入口、`latest.yml` 与实际安装包的大小和 sha512。任何一项不通过就直接终止，避免再把缺少自动更新组件的安装包发出去。在 Linux 上手动打 asar + makensis 时，请在 `makensis` 前运行 `npm run release:verify`。
+- 缺少更新组件时不再只回一句「无法检查更新」：仍会查询 GitCode 最新 Release，发现新版本时告诉用户具体版本，并提供「打开发布页」手动下载；启动时的自动检查弹窗也支持这种手动下载模式。
+- `require('electron-updater')` 失败时把原始原因写进日志，排查时能分清是缺文件、依赖不完整还是其它加载错误。
+
 ## 0.1.17
 
 ### 新增

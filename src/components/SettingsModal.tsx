@@ -2941,15 +2941,21 @@ export function SettingsModal() {
                     )}
                   </div>
                   <div className="set-update-actions">
-                    {update?.status === 'error' && (
+                    {(update?.status === 'error' ||
+                      update?.status === 'manual' ||
+                      update?.status === 'unavailable') && (
                       <button
                         className="btn btn-secondary"
-                        onClick={() => void bridge.openExternal?.('https://gitcode.com/jewey/glimnote/releases')}
+                        onClick={() =>
+                          void bridge.openExternal?.(
+                            update?.url || 'https://gitcode.com/jewey/glimnote/releases',
+                          )
+                        }
                       >
                         {t('打开发布页')}
                       </button>
                     )}
-                    {update?.status === 'available' && update.version && (
+                    {(update?.status === 'available' || update?.status === 'manual') && update.version && (
                       <button
                         className="btn btn-secondary"
                         disabled={downloading}

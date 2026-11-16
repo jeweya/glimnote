@@ -123,6 +123,7 @@ Checks and tests:
 npm run typecheck      # TypeScript type check
 npm run test:mcp       # MCP smoke tests (HTTP / ideas & journal / mini-apps)
 npm run test:ui        # settings UI walkthrough (Playwright; run npx playwright install chromium first)
+npm run release:verify # check that app.asar ships electron-updater and matches latest.yml (also runs during electron:build)
 ```
 
 On first launch, the desktop app creates a `glimnote` folder under Documents. Every note is a plain file you can back up or open in any editor at any time.
