@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图片压缩</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#7a5aa6;--accent-soft:#f1ebf7;--track:#efece4;--warn:#b4483c;--good:#2f6b58;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#b79be0;--accent-soft:#2e2430;--track:#2e2e2a;--warn:#e08a7d;--good:#6fae94;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .saved{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}
+  .head .saved b{display:block;font-size:17px;color:var(--good);font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+  .drop{border:1.5px dashed var(--line);border-radius:12px;background:var(--bg);padding:18px 14px;text-align:center;cursor:pointer;
+    transition:border-color .2s,background .2s}
+  .drop.over,.drop:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .drop b{font-size:13px;font-weight:600}
+  .drop span{display:block;font-size:11px;color:var(--sub);margin-top:3px}
+  input[type=file]{display:none}
+  .preview{display:none;gap:10px;margin-top:12px}
+  .preview.on{display:grid;grid-template-columns:1fr 1fr}
+  @media (max-width:480px){.preview.on{grid-template-columns:1fr}}
+  .pane{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column}
+  .pane img{width:100%;height:150px;object-fit:contain;background:
+    repeating-conic-gradient(var(--track) 0 25%,transparent 0 50%) 0 0/16px 16px}
+  .pane figcaption{padding:6px 9px;font-size:11px;color:var(--sub);border-top:1px solid var(--line);line-height:1.5}
+  .pane figcaption b{display:block;color:var(--text);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+  .controls{margin-top:12px;display:flex;flex-direction:column;gap:10px}
+  .ctl{display:grid;grid-template-columns:64px 1fr 52px;gap:8px;align-items:center;font-size:12px;color:var(--sub)}
+  .ctl b{text-align:right;color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .fmt{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--sub)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:var(--surface);color:var(--sub);font:inherit;font-size:11px;padding:4px 10px;cursor:pointer}
+  .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn:disabled{opacity:.45;cursor:default}
+  .msg{font-size:12px;color:var(--sub);min-height:18px;margin-top:8px}
+  .msg.warn{color:var(--warn)}
+  .msg.good{color:var(--good)}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>图片压缩</h1><p>改尺寸、调质量，体积一眼看见</p></div>
+    <div class="saved">省下 <b id="saved">—</b></div>
+  </div>
+  <div class="card">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="选择图片">
+      <b>点这里选图片</b>
+      <span>也可以把图片拖进来 · 只在本机处理，不上传</span>
+    </div>
+    <input type="file" id="file" accept="image/*" aria-label="选择图片">
+
+    <div class="preview" id="preview">
+      <figure class="pane">
+        <img id="beforeImg" alt="原图预览">
+        <figcaption>原图<b id="beforeSize">—</b><span id="beforeMeta"></span></figcaption>
+      </figure>
+      <figure class="pane">
+        <img id="afterImg" alt="压缩后预览">
+        <figcaption>压缩后<b id="afterSize">—</b><span id="afterMeta"></span></figcaption>
+      </figure>
+    </div>
+
+    <div class="controls">
+      <div class="ctl"><span>最长边</span><input type="range" id="maxSide" min="320" max="4096" step="80" value="1600" aria-label="最长边"><b id="maxSideV">1600</b></div>
+      <div class="ctl"><span>质量</span><input type="range" id="quality" min="30" max="95" step="5" value="80" aria-label="质量"><b id="qualityV">80</b></div>
+      <div class="fmt">
+        <span>格式</span>
+        <div class="seg" id="format" role="group" aria-label="格式">
+          <button type="button" data-fmt="image/jpeg" class="on">JPEG</button>
+          <button type="button" data-fmt="image/webp">WebP</button>
+        </div>
+        <span style="margin-left:auto;font-size:11px">最长边上限 4096 像素</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="copy" type="button" disabled>复制图片</button>
+      <button class="btn" id="reset" type="button">换一张</button>
+      <button class="btn primary" id="run" type="button" disabled>压缩</button>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+  </div>
+  <div class="foot">图片不会保存进笔记 · 参数会记住，下次直接调</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'imgcompress';
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var source = null;        // {file, width, height, url, name}
+  var lastBlob = null;
+  var lastUrl = null;
+  var taskSeq = 0;          // 每次换图或改参数都自增，丢弃过期的异步压缩结果
+  var format = 'image/jpeg';
+
+  var dropEl = document.getElementById('drop');
+  var fileEl = document.getElementById('file');
+  var previewEl = document.getElementById('preview');
+  var maxSideEl = document.getElementById('maxSide');
+  var qualityEl = document.getElementById('quality');
+  var msgEl = document.getElementById('msg');
+  var runEl = document.getElementById('run');
+  var copyEl = document.getElementById('copy');
+
+  function fmtSize(n) {
+    if (!isFinite(n)) return '—';
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + ' MB';
+    if (n >= 1024) return Math.round(n / 1024) + ' KB';
+    return Math.round(n) + ' B';
+  }
+
+  function saveSettings() {
+    set(KEY, { maxSide: maxSideEl.value, quality: qualityEl.value, format: format });
+  }
+
+  function paintLabels() {
+    document.getElementById('maxSideV').textContent = maxSideEl.value;
+    document.getElementById('qualityV').textContent = qualityEl.value;
+  }
+
+  function clearResult() {
+    taskSeq++;
+    lastBlob = null;
+    copyEl.disabled = true;
+    var afterImg = document.getElementById('afterImg');
+    afterImg.onload = null;
+    afterImg.removeAttribute('src');
+    if (lastUrl) { URL.revokeObjectURL(lastUrl); lastUrl = null; }
+    document.getElementById('afterSize').textContent = '—';
+    document.getElementById('afterMeta').textContent = '';
+    document.getElementById('saved').textContent = '—';
+  }
+
+  function loadFile(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      setMsg('这个文件不是图片', true);
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        source = {
+          file: file,
+          name: file.name,
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+          url: reader.result,
+          img: img
+        };
+        previewEl.classList.add('on');
+        document.getElementById('beforeImg').src = reader.result;
+        document.getElementById('beforeSize').textContent = fmtSize(file.size);
+        document.getElementById('beforeMeta').textContent = img.naturalWidth + ' × ' + img.naturalHeight;
+        clearResult();
+        runEl.disabled = false;
+        setMsg('参数调好就点「压缩」', false);
+        document.title = fmtSize(file.size) + ' · 图片压缩';
+      };
+      img.onerror = function () { setMsg('图片打不开，换一张试试', true); };
+      img.src = reader.result;
+    };
+    reader.onerror = function () { setMsg('读取失败，换一张试试', true); };
+    reader.readAsDataURL(file);
+  }
+
+  function setMsg(text, warn) {
+    msgEl.textContent = text;
+    msgEl.className = 'msg' + (warn ? ' warn' : '');
+  }
+
+  function compress() {
+    if (!source) return;
+    var maxSide = Number(maxSideEl.value) || 1600;
+    var quality = (Number(qualityEl.value) || 80) / 100;
+    var scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+    var w = Math.max(1, Math.round(source.width * scale));
+    var h = Math.max(1, Math.round(source.height * scale));
+
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    if (format === 'image/jpeg') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source.img, 0, 0, w, h);
+
+    var type = format;
+    var seq = taskSeq;
+    canvas.toBlob(function (blob) {
+      // 压缩是异步的：回调回来时用户可能已经换图或改了参数
+      if (seq !== taskSeq || !source) return;
+      if (!blob) {
+        setMsg('这个环境不支持该格式，换 JPEG 试试', true);
+        return;
+      }
+      lastBlob = blob;
+      var url = URL.createObjectURL(blob);
+      lastUrl = url;
+      var afterImg = document.getElementById('afterImg');
+      afterImg.onload = function () {
+        afterImg.onload = null;
+        if (lastUrl === url) { URL.revokeObjectURL(url); lastUrl = null; }
+      };
+      afterImg.src = url;
+      var actual = /webp/i.test(blob.type) ? 'WebP' : /png/i.test(blob.type) ? 'PNG' : 'JPEG';
+      document.getElementById('afterSize').textContent = fmtSize(blob.size);
+      document.getElementById('afterMeta').textContent = w + ' × ' + h + ' · ' + actual;
+
+      var ratio = source.file.size ? blob.size / source.file.size : 1;
+      var cut = Math.round((1 - ratio) * 100);
+      document.getElementById('saved').textContent = cut > 0 ? cut + '%' : '—';
+      copyEl.disabled = false;
+
+      if (blob.size >= source.file.size) {
+        setMsg('这次压完反而更大了（原图可能已经很小），可以降低质量或尺寸', true);
+      } else {
+        setMsg('好了：' + fmtSize(source.file.size) + ' → ' + fmtSize(blob.size) + '，省 ' + cut + '%', false);
+        msgEl.className = 'msg good';
+      }
+      document.title = fmtSize(blob.size) + ' · 图片压缩';
+    }, type, quality);
+  }
+
+  function copyImage() {
+    if (!lastBlob) return;
+    if (!navigator.clipboard || !window.ClipboardItem || !navigator.clipboard.write) {
+      setMsg('这个环境不支持复制图片，右键预览图可以另存', true);
+      return;
+    }
+    var item = new ClipboardItem({ [lastBlob.type]: lastBlob });
+    navigator.clipboard.write([item]).then(function () {
+      setMsg('图片已复制，可以直接粘贴到聊天里', false);
+      msgEl.className = 'msg good';
+    }).catch(function () {
+      setMsg('复制被拦截了，可以右键预览图另存', true);
+    });
+  }
+
+  function reset() {
+    taskSeq++;
+    source = null;
+    lastBlob = null;
+    fileEl.value = '';
+    previewEl.classList.remove('on');
+    runEl.disabled = true;
+    copyEl.disabled = true;
+    document.getElementById('saved').textContent = '—';
+    setMsg('', false);
+    document.title = '图片压缩';
+    dropEl.focus();
+  }
+
+  dropEl.addEventListener('click', function () { fileEl.click(); });
+  dropEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileEl.click(); }
+  });
+  fileEl.addEventListener('change', function () {
+    if (fileEl.files && fileEl.files[0]) loadFile(fileEl.files[0]);
+  });
+  ['dragenter', 'dragover'].forEach(function (type) {
+    dropEl.addEventListener(type, function (e) {
+      e.preventDefault();
+      dropEl.classList.add('over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (type) {
+    dropEl.addEventListener(type, function (e) {
+      e.preventDefault();
+      dropEl.classList.remove('over');
+    });
+  });
+  dropEl.addEventListener('drop', function (e) {
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadFile(file);
+  });
+
+  maxSideEl.addEventListener('input', function () { paintLabels(); saveSettings(); if (source) clearResult(); });
+  qualityEl.addEventListener('input', function () { paintLabels(); saveSettings(); if (source) clearResult(); });
+
+  var fmtBox = document.getElementById('format');
+  Array.prototype.forEach.call(fmtBox.querySelectorAll('button'), function (btn) {
+    btn.addEventListener('click', function () {
+      format = btn.getAttribute('data-fmt');
+      Array.prototype.forEach.call(fmtBox.querySelectorAll('button'), function (b) {
+        b.classList.toggle('on', b === btn);
+      });
+      saveSettings();
+      if (source) clearResult();
+    });
+  });
+
+  runEl.addEventListener('click', compress);
+  copyEl.addEventListener('click', copyImage);
+  document.getElementById('reset').addEventListener('click', reset);
+
+  get(KEY, null).then(function (saved) {
+    if (saved && typeof saved === 'object') {
+      if (saved.maxSide) maxSideEl.value = String(Math.max(320, Math.min(4096, Number(saved.maxSide) || 1600)));
+      if (saved.quality) qualityEl.value = String(Math.max(30, Math.min(95, Number(saved.quality) || 80)));
+      if (saved.format === 'image/webp') {
+        format = 'image/webp';
+        Array.prototype.forEach.call(fmtBox.querySelectorAll('button'), function (b) {
+          b.classList.toggle('on', b.getAttribute('data-fmt') === format);
+        });
+      }
+    }
+    paintLabels();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

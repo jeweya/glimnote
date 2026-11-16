@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>文本小工具</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --dim:#ede9e0;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--dim:#33322e;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:620px;display:flex;flex-direction:column;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .sub{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .tools{display:flex;flex-wrap:wrap;gap:5px}
+  .tools button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--surface);
+    color:var(--sub);border-radius:8px;padding:5px 10px;cursor:pointer}
+  .tools button:hover{border-color:var(--accent);color:var(--accent)}
+  .tools button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tools button.primary:hover{filter:brightness(1.06)}
+  .tools button.danger:hover{border-color:var(--warn);color:var(--warn)}
+  textarea{width:100%;min-height:210px;resize:vertical;font-family:ui-monospace,SFMono-Regular,
+    Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;color:inherit;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;padding:11px;box-shadow:var(--shadow)}
+  textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:7px 4px;text-align:center}
+  .stat b{display:block;font-size:15px;font-variant-numeric:tabular-nums}
+  .stat span{font-size:10px;color:var(--sub)}
+  .msg{font-size:12px;color:var(--accent);min-height:16px;text-align:center}
+  .msg.err{color:var(--warn)}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>文本小工具</h1>
+    <p class="sub">JSON 排版、Base64、URL 编码、字数统计，粘进来就地处理</p>
+  </div>
+
+  <div class="tools">
+    <button type="button" data-act="json" class="primary">JSON 格式化</button>
+    <button type="button" data-act="minify">JSON 压缩</button>
+    <button type="button" data-act="b64e">Base64 编码</button>
+    <button type="button" data-act="b64d">Base64 解码</button>
+    <button type="button" data-act="urle">URL 编码</button>
+    <button type="button" data-act="urld">URL 解码</button>
+    <button type="button" data-act="trim">去空行</button>
+    <button type="button" data-act="copy">复制全文</button>
+    <button type="button" data-act="clear" class="danger">清空</button>
+  </div>
+
+  <textarea id="text" spellcheck="false" aria-label="文本内容"
+    placeholder="在这里粘贴内容。JSON 会高亮缩进，Base64 / URL 只做编码转换，不联网。"></textarea>
+
+  <div class="stats">
+    <div class="stat"><b id="s-char">0</b><span>字符</span></div>
+    <div class="stat"><b id="s-nospace">0</b><span>不含空格</span></div>
+    <div class="stat"><b id="s-line">0</b><span>行</span></div>
+    <div class="stat"><b id="s-cn">0</b><span>中文字</span></div>
+    <div class="stat"><b id="s-word">0</b><span>英文词</span></div>
+    <div class="stat"><b id="s-byte">0</b><span>UTF-8 字节</span></div>
+    <div class="stat"><b id="s-read">0</b><span>预计读完（分）</span></div>
+    <div class="stat"><b id="s-sel">0</b><span>已选中</span></div>
+  </div>
+
+  <div class="msg" id="msg" role="status"></div>
+  <div class="foot">纯本地处理，内容不会上传</div>
+</div>
+
+<script>
+(function () {
+  var el = {
+    text: document.getElementById('text'), msg: document.getElementById('msg'),
+    char: document.getElementById('s-char'), nospace: document.getElementById('s-nospace'),
+    line: document.getElementById('s-line'), cn: document.getElementById('s-cn'),
+    word: document.getElementById('s-word'), byte: document.getElementById('s-byte'),
+    read: document.getElementById('s-read'), sel: document.getElementById('s-sel')
+  };
+
+  var hanRe = null;
+  try { hanRe = new RegExp('\\p{Script=Han}', 'gu'); } catch (e) { hanRe = null; }
+
+  function countHan(text) {
+    if (hanRe) {
+      var m = text.match(hanRe);
+      return m ? m.length : 0;
+    }
+    return (text.match(/[一-龥]/g) || []).length;
+  }
+
+  function stats() {
+    var v = el.text.value;
+    // 按码点计数，emoji 和扩展区汉字不会被算成两个字符
+    el.char.textContent = String(Array.from(v).length);
+    el.nospace.textContent = String(Array.from(v.replace(/\s/g, '')).length);
+    el.line.textContent = String(v ? v.split('\n').length : 0);
+    var cn = countHan(v);
+    el.cn.textContent = String(cn);
+    var word = (v.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []).length;
+    el.word.textContent = String(word);
+    var bytes = 0;
+    try {
+      bytes = new TextEncoder().encode(v).length;
+    } catch (e) {
+      bytes = unescape(encodeURIComponent(v)).length;
+    }
+    el.byte.textContent = String(bytes);
+    el.read.textContent = String(Math.max(0, Math.ceil(cn / 400 + word / 200)));
+    var start = el.text.selectionStart || 0;
+    var end = el.text.selectionEnd || 0;
+    el.sel.textContent = String(Math.max(0, end - start));
+  }
+
+  function say(text, isErr) {
+    el.msg.textContent = text;
+    el.msg.className = 'msg' + (isErr ? ' err' : '');
+  }
+
+  function replace(text, note) {
+    el.text.value = text;
+    stats();
+    say(note);
+  }
+
+  // JSON.parse 会把超过 2^53-1 的整数悄悄取整，格式化前先拦住
+  var numToken = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+  function unsafeNumber(text) {
+    var i = 0, n = text.length, inString = false, esc = false;
+    while (i < n) {
+      var ch = text.charAt(i);
+      if (inString) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inString = false;
+        i += 1;
+        continue;
+      }
+      if (ch === '"') { inString = true; i += 1; continue; }
+      if (ch === '-' || (ch >= '0' && ch <= '9')) {
+        numToken.lastIndex = i;
+        var m = numToken.exec(text);
+        if (!m) { i += 1; continue; }
+        var lit = m[0];
+        var num = Number(lit);
+        var integer = lit.indexOf('.') < 0 && lit.indexOf('e') < 0 && lit.indexOf('E') < 0;
+        if (!isFinite(num) || (integer && Math.abs(num) > 9007199254740991)) return lit;
+        i += lit.length;
+        continue;
+      }
+      i += 1;
+    }
+    return '';
+  }
+
+  function utf8ToB64(str) {
+    var bytes = new TextEncoder().encode(str);
+    var bin = '';
+    for (var i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToUtf8(b64) {
+    var bin = atob(b64.replace(/\s/g, ''));
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  }
+
+  var ACTIONS = {
+    json: function () {
+      var v = el.text.value.trim();
+      if (!v) return say('先粘一段 JSON 进来', true);
+      var big = unsafeNumber(v);
+      if (big) return say('「' + big + '」超出 JS 安全整数范围，格式化会丢精度，已取消', true);
+      try {
+        replace(JSON.stringify(JSON.parse(v), null, 2), '已是合法 JSON，排版完成');
+      } catch (e) {
+        say('不是合法 JSON：' + (e.message || '解析失败'), true);
+      }
+    },
+    minify: function () {
+      var v = el.text.value.trim();
+      if (!v) return say('先粘一段 JSON 进来', true);
+      var big = unsafeNumber(v);
+      if (big) return say('「' + big + '」超出 JS 安全整数范围，压缩会丢精度，已取消', true);
+      try {
+        replace(JSON.stringify(JSON.parse(v)), '压缩完成，体积变小了');
+      } catch (e) {
+        say('不是合法 JSON：' + (e.message || '解析失败'), true);
+      }
+    },
+    b64e: function () {
+      var v = el.text.value;
+      if (!v) return say('先粘点内容', true);
+      replace(utf8ToB64(v), '已编码为 Base64（支持中文）');
+    },
+    b64d: function () {
+      var v = el.text.value.trim();
+      if (!v) return say('先粘 Base64 内容', true);
+      try {
+        replace(b64ToUtf8(v), '已解码；如果出现乱码，说明原文不是 Base64');
+      } catch (e) {
+        say('解不开，检查是不是完整的 Base64', true);
+      }
+    },
+    urle: function () {
+      var v = el.text.value;
+      if (!v) return say('先粘点内容', true);
+      replace(encodeURIComponent(v), 'URL 编码完成，可直接放进链接参数');
+    },
+    urld: function () {
+      var v = el.text.value.trim();
+      if (!v) return say('先粘编码后的内容', true);
+      try {
+        replace(decodeURIComponent(v.replace(/\+/g, ' ')), 'URL 解码完成');
+      } catch (e) {
+        say('解码失败：里面有残缺的 %xx 片段', true);
+      }
+    },
+    trim: function () {
+      var v = el.text.value;
+      if (!v) return say('先粘点内容', true);
+      var lines = v.split('\n').filter(function (l) { return l.trim() !== ''; });
+      replace(lines.join('\n'), '去掉了 ' + (v.split('\n').length - lines.length) + ' 个空行');
+    },
+    copy: function () {
+      if (!el.text.value) return say('还没有内容可复制', true);
+      var ok = function () { say('已复制 ' + el.text.value.length + ' 个字符'); };
+      var fail = function () {
+        el.text.focus();
+        el.text.select();
+        say('已全选，按 Ctrl+C 复制', true);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(el.text.value).then(ok, fail);
+          return;
+        }
+      } catch (e) { /* 兜底 */ }
+      try {
+        el.text.focus();
+        el.text.select();
+        document.execCommand('copy') ? ok() : fail();
+      } catch (e2) {
+        fail();
+      }
+    },
+    clear: function () {
+      if (!el.text.value) return;
+      el.text.value = '';
+      stats();
+      say('已清空');
+      el.text.focus();
+    }
+  };
+
+  document.querySelectorAll('[data-act]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var act = ACTIONS[btn.getAttribute('data-act')];
+      if (act) act();
+    });
+  });
+
+  el.text.addEventListener('input', stats);
+  el.text.addEventListener('keyup', stats);
+  el.text.addEventListener('mouseup', stats);
+  el.text.addEventListener('select', stats);
+
+  el.text.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      ACTIONS.json();
+    }
+  });
+
+  stats();
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

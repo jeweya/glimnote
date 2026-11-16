@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>书影记录</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --star:#c08a2e; --dim:#ede9e0;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--star:#d9b26a;--dim:#33322e;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .sub{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:4px}
+  .tabs button{flex:1;border:0;background:transparent;color:var(--sub);font:inherit;font-size:12px;
+    padding:7px 4px;border-radius:8px;cursor:pointer;white-space:nowrap}
+  .tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .tabs button span{color:var(--sub);font-size:10px;margin-left:2px}
+  .add{display:grid;grid-template-columns:1fr 84px;gap:6px}
+  .add input,.add select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;min-width:0;width:100%}
+  .add input:focus-visible,.add select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .add button{grid-column:1 / -1;font:inherit;border:1px solid var(--accent);background:var(--accent);
+    color:#fff;border-radius:10px;padding:9px;cursor:pointer;font-weight:600}
+  .add button:hover{filter:brightness(1.06)}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;
+    display:flex;flex-direction:column;gap:5px}
+  .item .top{display:flex;align-items:center;gap:8px}
+  .badge{font-size:10px;border:1px solid var(--line);color:var(--sub);border-radius:999px;padding:1px 6px;flex:none}
+  .title{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stars{display:flex;gap:1px;flex:none}
+  .stars button{border:0;background:transparent;cursor:pointer;padding:1px;line-height:0;color:var(--dim)}
+  .stars button.on{color:var(--star)}
+  .stars button:hover{color:var(--star)}
+  .note{font-size:12px;color:var(--sub);word-break:break-word}
+  .ops{display:flex;gap:6px;align-items:center;margin-top:2px}
+  .ops button{font:inherit;font-size:11px;border:1px solid var(--line);background:var(--bg);color:var(--sub);
+    border-radius:7px;padding:3px 9px;cursor:pointer}
+  .ops button:hover{border-color:var(--accent);color:var(--accent)}
+  .ops .del{margin-left:auto;border:0;background:transparent;color:var(--sub);padding:3px;line-height:0}
+  .ops .del:hover{color:var(--warn)}
+  .note-edit{display:flex;gap:6px;flex-wrap:wrap}
+  .note-edit input{flex:1 1 160px;font:inherit;font-size:12px;color:inherit;background:var(--bg);
+    border:1px solid var(--line);border-radius:8px;padding:5px 8px;min-width:0}
+  .note-edit input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .note-edit button{font:inherit;font-size:11px;border:1px solid var(--line);background:var(--bg);
+    color:var(--sub);border-radius:7px;padding:4px 10px;cursor:pointer}
+  .note-edit .btn-save{border-color:var(--accent);background:var(--accent);color:#fff}
+  .empty{border:1px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--sub);font-size:12px}
+  .msg{font-size:12px;color:var(--warn);min-height:16px}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>书影记录</h1>
+    <p class="sub">想看的存着，看完打个分、留一句话</p>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="状态">
+    <button type="button" role="tab" data-status="want" aria-selected="true">想看<span id="c-want"></span></button>
+    <button type="button" role="tab" data-status="doing" aria-selected="false">在看<span id="c-doing"></span></button>
+    <button type="button" role="tab" data-status="done" aria-selected="false">看完<span id="c-done"></span></button>
+  </div>
+
+  <form class="add" id="form">
+    <input id="title" maxlength="40" placeholder="书名或片名" aria-label="书名或片名">
+    <select id="type" aria-label="类型"><option value="book">书</option><option value="movie">影视</option></select>
+    <button type="submit">加进清单</button>
+  </form>
+  <div class="msg" id="msg" role="status"></div>
+
+  <div class="list" id="list"></div>
+  <div class="foot">点星星打分 · 数据保存在仓库里，随同步上云</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'items';
+  var mem = [];
+  var status = 'want';
+  var bridge = window.glimnote && window.glimnote.data;
+
+  function load() {
+    if (!bridge) return Promise.resolve(mem);
+    return bridge.get(KEY, []).then(function (v) { return Array.isArray(v) ? v : []; })
+      .catch(function () { return mem; });
+  }
+  function save() {
+    if (!bridge) return Promise.resolve();
+    return bridge.set(KEY, mem).catch(function () {});
+  }
+
+  var el = {
+    list: document.getElementById('list'), form: document.getElementById('form'),
+    title: document.getElementById('title'), type: document.getElementById('type'),
+    msg: document.getElementById('msg')
+  };
+  var STATUS_TEXT = { want: '想看', doing: '在看', done: '看完' };
+  var NEXT = { want: 'doing', doing: 'done', done: 'want' };
+  var touched = false;
+  var draft = null;    // 还没保存的短评草稿，重绘时保留
+
+  function openNoteEditor(card, item, value, focus) {
+    var box = document.createElement('div');
+    box.className = 'note-edit';
+    var input = document.createElement('input');
+    input.maxLength = 120;
+    input.value = value || '';
+    input.placeholder = '一句话短评，留空表示清除';
+    input.setAttribute('aria-label', '一句话短评');
+    input.addEventListener('input', function () { draft = { id: item.id, value: input.value }; });
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn-save';
+    saveBtn.textContent = '保存';
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', function () {
+      if (draft && draft.id === item.id) draft = null;
+      box.remove();
+    });
+    saveBtn.addEventListener('click', function () {
+      item.note = input.value.trim().slice(0, 120);
+      item.updated = new Date().toISOString();
+      draft = null;
+      touched = true;
+      save().then(render);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
+      if (e.key === 'Escape') { e.preventDefault(); cancel.click(); }
+    });
+    box.appendChild(input);
+    box.appendChild(saveBtn);
+    box.appendChild(cancel);
+    card.appendChild(box);
+    if (focus) input.focus();
+  }
+
+  function starIcon(filled) {
+    return '<svg width="15" height="15" viewBox="0 0 24 24" fill="' + (filled ? 'currentColor' : 'none') +
+      '" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9L12 17l-5.2 2.8 1-5.9L3.5 9.7l5.9-.8z"/></svg>';
+  }
+
+  function render() {
+    ['want', 'doing', 'done'].forEach(function (s) {
+      document.getElementById('c-' + s).textContent = String(mem.filter(function (i) { return i.status === s; }).length);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-status]'), function (t) {
+      t.setAttribute('aria-selected', String(t.getAttribute('data-status') === status));
+    });
+
+    var rows = mem.filter(function (i) { return i.status === status; })
+      .sort(function (a, b) {
+        var x = String(b.updated || ''), y = String(a.updated || '');
+        if (x === y) return 0;
+        return x < y ? -1 : 1;
+      });
+
+    el.list.textContent = '';
+    if (!rows.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = {
+        want: '清单是空的，把想看的先存进来',
+        doing: '还没有在看的，从「想看」移过来一本吧',
+        done: '还没有看完的，别急'
+      }[status];
+      el.list.appendChild(empty);
+      return;
+    }
+
+    rows.forEach(function (item) {
+      var card = document.createElement('div');
+      card.className = 'item';
+
+      var top = document.createElement('div');
+      top.className = 'top';
+      var badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = item.type === 'movie' ? '影视' : '书';
+      var title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = item.title;
+      top.appendChild(badge);
+      top.appendChild(title);
+
+      var stars = document.createElement('div');
+      stars.className = 'stars';
+      stars.setAttribute('role', 'group');
+      stars.setAttribute('aria-label', '评分');
+      for (var i = 1; i <= 5; i += 1) {
+        (function (score) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = (Number(item.rating) || 0) >= score ? 'on' : '';
+          btn.setAttribute('aria-label', score + ' 星');
+          btn.innerHTML = starIcon((Number(item.rating) || 0) >= score);
+          btn.addEventListener('click', function () {
+            touched = true;
+            item.rating = Number(item.rating) === score ? 0 : score;
+            item.updated = new Date().toISOString();
+            save().then(render);
+          });
+          stars.appendChild(btn);
+        })(i);
+      }
+      top.appendChild(stars);
+
+      card.appendChild(top);
+
+      if (item.note) {
+        var note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = item.note;
+        card.appendChild(note);
+      }
+
+      var ops = document.createElement('div');
+      ops.className = 'ops';
+      var move = document.createElement('button');
+      move.type = 'button';
+      move.textContent = '移到' + STATUS_TEXT[NEXT[item.status]];
+      move.addEventListener('click', function () {
+        touched = true;
+        item.status = NEXT[item.status];
+        item.updated = new Date().toISOString();
+        save().then(render);
+      });
+      ops.appendChild(move);
+
+      if (status === 'done') {
+        var noteBtn = document.createElement('button');
+        noteBtn.type = 'button';
+        noteBtn.textContent = item.note ? '改短评' : '写短评';
+        noteBtn.addEventListener('click', function () {
+          // 沙箱里不能弹原生输入框，短评直接展开在卡片里
+          if (card.querySelector('.note-edit')) {
+            card.querySelector('.note-edit').remove();
+            if (draft && draft.id === item.id) draft = null;
+            return;
+          }
+          openNoteEditor(card, item, draft && draft.id === item.id ? draft.value : (item.note || ''), true);
+        });
+        ops.appendChild(noteBtn);
+      }
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del';
+      del.title = '删除';
+      del.setAttribute('aria-label', '删除 ' + item.title);
+      del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>';
+      del.addEventListener('click', function () {
+        touched = true;
+        if (draft && draft.id === item.id) draft = null;
+        mem = mem.filter(function (x) { return x.id !== item.id; });
+        save().then(render);
+      });
+      ops.appendChild(del);
+
+      card.appendChild(ops);
+      el.list.appendChild(card);
+      if (status === 'done' && draft && draft.id === item.id) {
+        openNoteEditor(card, item, draft.value, false);
+      }
+    });
+  }
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var title = el.title.value.trim();
+    if (!title) {
+      el.msg.textContent = '先写书名或片名';
+      el.title.focus();
+      return;
+    }
+    if (mem.length >= 500) {
+      el.msg.textContent = '最多 500 条，先清理一下';
+      return;
+    }
+    el.msg.textContent = '';
+    touched = true;
+    mem.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: title,
+      type: el.type.value,
+      status: status,
+      rating: 0,
+      note: '',
+      updated: new Date().toISOString()
+    });
+    el.title.value = '';
+    save().then(render);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-status]'), function (tab) {
+    tab.addEventListener('click', function () {
+      status = tab.getAttribute('data-status');
+      render();
+    });
+  });
+
+  load().then(function (list) {
+    var loaded = list.map(function (i) {
+      return {
+        id: String(i.id || ''), title: String(i.title || ''), type: i.type === 'movie' ? 'movie' : 'book',
+        status: STATUS_TEXT[i.status] ? i.status : 'want', rating: Number(i.rating) || 0,
+        note: String(i.note || ''), updated: String(i.updated || '')
+      };
+    }).filter(function (i) { return i.title; });
+    if (touched) {
+      var seen = {};
+      mem.forEach(function (i) { seen[i.id] = true; });
+      loaded.forEach(function (i) { if (!seen[i.id]) mem.push(i); });
+      save();
+    } else {
+      mem = loaded;
+    }
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

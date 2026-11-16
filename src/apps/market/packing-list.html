@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>旅行清单</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#3a6ea5;--accent-soft:#e6eef7;--track:#efece4;--warn:#b4483c;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#7fa7cf;--accent-soft:#222c38;--track:#2e2e2a;--warn:#e08a7d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:560px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .prog{text-align:right;font-size:12px;color:var(--sub);white-space:nowrap}
+  .head .prog b{display:block;font-size:17px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+  .bar{height:4px;border-radius:4px;background:var(--track);overflow:hidden;margin:0 0 12px}
+  .bar i{display:block;height:100%;width:0;border-radius:4px;background:var(--accent);transition:width .25s}
+  form.add{display:flex;gap:7px;margin-bottom:14px}
+  input,select{font:inherit;font-size:13px;color:var(--text);background:var(--bg);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  form.add input{flex:1;min-width:0}
+  .btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .group{margin-top:12px}
+  .group-head{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--sub);margin-bottom:4px}
+  .group-head b{color:var(--text);font-size:13px;font-weight:600}
+  .group-head i{font-style:normal;font-size:11px;margin-left:auto}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+  li{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:8px}
+  li:hover{background:var(--bg)}
+  .tick{width:18px;height:18px;flex:0 0 18px;border:1.5px solid var(--line);border-radius:5px;background:var(--surface);
+    cursor:pointer;display:grid;place-items:center;color:#fff;font-size:11px}
+  li.done .tick{background:var(--accent);border-color:var(--accent)}
+  .txt{flex:1;min-width:0;font-size:13px;word-break:break-word}
+  li.done .txt{color:var(--sub);text-decoration:line-through}
+  .del{border:0;background:transparent;color:var(--sub);font-size:15px;line-height:1;cursor:pointer;opacity:0;padding:0 2px}
+  li:hover .del{opacity:1}
+  @media (hover:none){.del{opacity:1}}
+  .empty{font-size:12px;color:var(--sub);padding:10px 0;text-align:center}
+  .empty.warn{color:var(--warn)}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .link{border:0;background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:4px 2px}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>旅行清单</h1><p>出门前照着勾一遍，少带东西也不慌</p></div>
+    <div class="prog">已装 <b id="ratio">0%</b></div>
+  </div>
+  <div class="card">
+    <div class="bar"><i id="bar"></i></div>
+    <form class="add" id="form">
+      <input type="text" id="input" maxlength="40" placeholder="要带的东西" aria-label="要带的东西">
+      <select id="cat" aria-label="分类"></select>
+      <button class="btn primary" type="submit">加入</button>
+    </form>
+    <div id="groups"></div>
+    <div class="actions">
+      <button class="link" id="reset" type="button">重置勾选</button>
+    </div>
+  </div>
+  <div class="foot">清单保存在应用里 · 勾选状态一直保留到下次出门</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'packing';
+  var CATS = ['证件', '衣物', '电子', '洗漱', '其他'];
+  var DEFAULTS = [
+    { cat: '证件', text: '身份证 / 护照' },
+    { cat: '证件', text: '车票 / 机票信息' },
+    { cat: '衣物', text: '换洗衣物' },
+    { cat: '衣物', text: '外套' },
+    { cat: '电子', text: '手机充电器' },
+    { cat: '电子', text: '充电宝' },
+    { cat: '电子', text: '耳机' },
+    { cat: '洗漱', text: '牙刷 / 牙膏' },
+    { cat: '洗漱', text: '毛巾' },
+    { cat: '其他', text: '常用药' }
+  ];
+
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var items = [];
+  var seeded = false;
+  var touched = false;
+  var groupsEl = document.getElementById('groups');
+  var catEl = document.getElementById('cat');
+  var bar = document.getElementById('bar');
+
+  CATS.forEach(function (cat) {
+    var opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    catEl.appendChild(opt);
+  });
+
+  function save() { set(KEY, { seeded: true, items: items }); }
+
+  function render() {
+    groupsEl.textContent = '';
+    var done = items.filter(function (i) { return i.done; }).length;
+    var ratio = items.length ? Math.round(done / items.length * 100) : 0;
+    document.getElementById('ratio').textContent = ratio + '%';
+    bar.style.width = ratio + '%';
+
+    CATS.forEach(function (cat) {
+      var list = items.filter(function (i) { return i.cat === cat; });
+      if (!list.length) return;
+      var doneCount = list.filter(function (i) { return i.done; }).length;
+      var group = document.createElement('section');
+      group.className = 'group';
+      var head = document.createElement('div');
+      head.className = 'group-head';
+      var title = document.createElement('b');
+      title.textContent = cat;
+      var count = document.createElement('i');
+      count.textContent = doneCount + ' / ' + list.length;
+      head.appendChild(title); head.appendChild(count);
+
+      var ul = document.createElement('ul');
+      list.forEach(function (item) {
+        var li = document.createElement('li');
+        if (item.done) li.className = 'done';
+        var tick = document.createElement('button');
+        tick.className = 'tick';
+        tick.type = 'button';
+        tick.textContent = item.done ? '✓' : '';
+        tick.title = item.done ? '取消勾选' : '装好了';
+        tick.addEventListener('click', function () {
+          touched = true;
+          item.done = !item.done;
+          save(); render();
+        });
+        var txt = document.createElement('span');
+        txt.className = 'txt';
+        txt.textContent = item.text;
+        var del = document.createElement('button');
+        del.className = 'del';
+        del.type = 'button';
+        del.textContent = '×';
+        del.title = '删除';
+        del.addEventListener('click', function () {
+          touched = true;
+          items = items.filter(function (x) { return x.id !== item.id; });
+          save(); render();
+        });
+        li.appendChild(tick); li.appendChild(txt); li.appendChild(del);
+        ul.appendChild(li);
+      });
+
+      group.appendChild(head); group.appendChild(ul);
+      groupsEl.appendChild(group);
+    });
+    if (!items.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '清单空了，上面加几项，或刷新后恢复默认清单';
+      groupsEl.appendChild(empty);
+    }
+    document.title = (ratio ? ratio + '% · ' : '') + '旅行清单';
+  }
+
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var input = document.getElementById('input');
+    var text = input.value.trim();
+    if (!text) return;
+    touched = true;
+    items.push({ id: 'p' + Date.now().toString(36), cat: catEl.value, text: text, done: false });
+    input.value = '';
+    save(); render();
+    input.focus();
+  });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    touched = true;
+    items.forEach(function (item) { item.done = false; });
+    save(); render();
+  });
+
+  function loadState() {
+    if (!bridge) return Promise.resolve({ ok: true, value: (KEY in mem ? mem[KEY] : null) });
+    return bridge.get(KEY, null).then(
+      function (v) { return { ok: true, value: v }; },
+      function () { return { ok: false, value: null }; }
+    );
+  }
+
+  loadState().then(function (res) {
+    if (!res.ok) {
+      // 读取失败时绝不能拿默认清单覆盖仓库里的真实数据
+      groupsEl.textContent = '';
+      var fail = document.createElement('div');
+      fail.className = 'empty warn';
+      fail.textContent = '读取失败，先不改动原有清单；稍后刷新再试。';
+      groupsEl.appendChild(fail);
+      return;
+    }
+    var saved = res.value;
+    if (saved && Array.isArray(saved.items)) {
+      var loaded = saved.items.filter(function (i) { return i && i.text; });
+      if (touched) {
+        var seen = {};
+        items.forEach(function (i) { seen[i.id] = true; });
+        loaded.forEach(function (i) { if (!seen[i.id]) items.push(i); });
+        save();
+      } else {
+        items = loaded;
+      }
+      seeded = true;
+    } else if (saved && typeof saved === 'object') {
+      groupsEl.textContent = '';
+      var bad = document.createElement('div');
+      bad.className = 'empty warn';
+      bad.textContent = '清单格式不认识，已保留原数据没有覆盖。';
+      groupsEl.appendChild(bad);
+      return;
+    }
+    if (!seeded && !touched) {
+      items = DEFAULTS.map(function (d, i) {
+        return { id: 'p' + i, cat: d.cat, text: d.text, done: false };
+      });
+      save();
+    }
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+node_modules/
+dist/
+release/
+dist-electron/
+.tmp/
+# 本机打包 / 构建临时目录（node 编译缓存、解包的安装包等）
+.tmp-build/
+*.local
+.DS_Store
+Thumbs.db
+npm-debug.log*
+*.tsbuildinfo
+
+# 验证脚本生成的截图（scripts/*.mjs 会按需重新创建）
+shots*/
+
+# Python 缓存（docs/tools 下的脚本）
+__pycache__/
+
+# 内部开发文档与截图：只保留在本地，不提交（对外只留 README 用图）
+/docs/mydoc/
+
+# 本机工具缓存：electron / electron-builder 下载的二进制（约 200MB）
+.cache/
+
+# AI 编码工具与工作记录：只在本机使用，不随仓库同步
+.claude/
+.workbuddy/
+
+# 临时同步测试文件
+__sync_test.txt
+
+# 编辑器 / 本地环境配置
+.vscode/
+.idea/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,2057 @@
+/* 桌面悬浮卡片（透明无边框窗口）与到点提醒 */
+
+/* 窗口是透明的：卡片四周的 14px 留白、16px 圆角和投影全部由 .card-shell 画，
+   桌面直接透出来，不会在卡片外面留一圈窗口底色。窗口本身不能有底色，否则
+   那圈灰边又会回来。 */
+html[data-window='card'],
+html[data-window='card'] body,
+html[data-window='card'] #root {
+  background: transparent;
+}
+
+html[data-window='card'] ::-webkit-scrollbar {
+  width: 8px;
+}
+html[data-window='card'] ::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--r-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+html[data-window='card'] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  background-clip: content-box;
+}
+
+.card-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 28px);
+  margin: 14px;
+  overflow: hidden;
+  background: var(--surface-page);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-3);
+  color: var(--text-1);
+  /* 静置时可以是半透明的（设置里调）；鼠标移上来 / 正在输入时恢复，不耽误看和写 */
+  opacity: var(--card-idle-opacity, 1);
+  transition: opacity var(--dur-panel) var(--ease-out);
+  animation: card-in var(--dur-panel) var(--ease-out);
+}
+
+.card-shell:hover,
+.card-shell:focus-within {
+  opacity: 1;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 顶部：日期 + 今日进度 ---------- */
+.card-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 10px 10px 16px;
+  user-select: none;
+  /* 标题栏拖动由 CardApp 发 IPC 完成；这里必须是普通 DOM，hover 才能恢复不透明度 */
+  touch-action: none;
+}
+
+.card-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-day-num {
+  font-size: 30px;
+  line-height: 32px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-day-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-day-side b {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--text-2);
+  line-height: 16px;
+}
+
+.card-day-side i {
+  font-style: normal;
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  line-height: 14px;
+}
+
+.card-head-sub {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-head-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.card-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-icon:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* 今日完成度：一条 2px 的线，不抢日期和待办的注意力 */
+.card-progress {
+  flex: 0 0 2px;
+  height: 2px;
+  margin: 0 16px 11px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.card-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+/* ---------- 透明度：点开一个小面板，调完鼠标移入即恢复 100% ---------- */
+.card-opacity-wrap {
+  position: relative;
+  display: flex;
+}
+
+.card-icon.on {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* 置顶是持续状态：用强调色标出来，和只表示「面板打开」的 .on 区分 */
+.card-icon.pinned {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.card-opacity-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.card-opacity-pop {
+  position: absolute;
+  top: 30px;
+  right: -8px;
+  z-index: 31;
+  width: 188px;
+  padding: 10px 12px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-page);
+  box-shadow: var(--shadow-2);
+  cursor: default;
+}
+
+.card-opacity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+}
+
+.card-opacity-head b {
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-opacity-pop input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.card-opacity-pop input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+}
+
+.card-opacity-pop input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border: 2px solid var(--surface-page);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+
+.card-opacity-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-3);
+}
+
+/* ---------- 待办 / 灵感切换 ---------- */
+.card-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  margin: 0 12px 10px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.card-tab {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out),
+    box-shadow var(--dur-micro) var(--ease-out);
+}
+
+.card-tab:hover {
+  color: var(--text-1);
+}
+
+.card-tab.on {
+  background: var(--surface-page);
+  color: var(--text-1);
+  box-shadow: var(--shadow-1);
+}
+
+.card-tab-count {
+  min-width: 16px;
+  height: 15px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-tab.on .card-tab-count {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* 两个 tab 共用的内容容器：上面固定输入区，下面滚动 */
+.card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 快速添加 ---------- */
+.card-add {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  margin: 0 12px 10px;
+  padding: 0 6px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-3);
+  transition:
+    border-color var(--dur-micro) var(--ease-out),
+    background var(--dur-micro) var(--ease-out);
+}
+
+.card-add:focus-within {
+  background: var(--surface-page);
+  border-color: var(--line-strong);
+}
+
+.card-add input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--text-1);
+}
+
+.card-add input::placeholder {
+  color: var(--text-3);
+}
+
+.card-add-btn {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    opacity var(--dur-micro) var(--ease-out);
+}
+
+.card-add-btn:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.card-add-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ---------- 滚动区 ---------- */
+.card-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 8px 6px;
+}
+
+.card-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 72px;
+  padding: 10px 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.card-empty.bad {
+  color: var(--danger);
+}
+
+/* ---------- 分组：今天 / 7 天内 / 1 个月内 / 以后 / 无日期 ---------- */
+.card-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-group + .card-group {
+  margin-top: 4px;
+}
+
+.card-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 4px;
+  background: var(--surface-page);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.card-group-head span {
+  font-weight: var(--fw-bold);
+  color: var(--text-2);
+}
+
+.card-group-head em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--danger);
+}
+
+.card-group-head i {
+  margin-left: auto;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 待办 ---------- */
+.card-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 8px;
+  border-radius: var(--r-md);
+  transition: background var(--dur-micro) var(--ease-out);
+}
+
+.card-task:hover {
+  background: var(--surface-2);
+}
+
+.card-check {
+  flex: 0 0 17px;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  color: transparent;
+  transition:
+    border-color var(--dur-micro) var(--ease-out),
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+
+.card-check:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.card-check:active {
+  transform: scale(0.9);
+}
+
+.card-task:hover .card-check {
+  border-color: var(--accent);
+  color: var(--text-3);
+}
+
+.card-task-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-task-title {
+  font-size: var(--fs-sm);
+  line-height: 18px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.card-task.late .card-task-title {
+  color: var(--text-2);
+}
+
+.card-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  min-height: 18px;
+}
+
+/* 日期 / 时间都是按钮：点一下就地改，不跳去主窗口 */
+.card-date-chip,
+.card-time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  padding: 0 6px 0 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-date-chip:hover,
+.card-time-chip:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.card-date-chip.late {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* 没设过日期 / 时间：虚线占位，鼠标移到这一行才明显 */
+.card-date-chip.empty,
+.card-time-chip:not(.set) {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  opacity: 0.7;
+}
+
+.card-task:hover .card-date-chip.empty,
+.card-task:hover .card-time-chip:not(.set) {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+.card-time-chip.set {
+  color: var(--text-2);
+}
+
+.card-time-input {
+  width: 88px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  outline: none;
+  background: var(--surface-page);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-time-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+/* ---------- 灵感 ---------- */
+.card-idea-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-idea-compose {
+  margin: 0 12px 8px;
+  padding: 7px 8px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition:
+    border-color var(--dur-micro) var(--ease-out),
+    background var(--dur-micro) var(--ease-out);
+}
+
+.card-idea-compose:focus-within {
+  background: var(--surface-page);
+  border-color: var(--line-strong);
+}
+
+.card-idea-compose textarea {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  line-height: 19px;
+  color: var(--text-1);
+}
+
+.card-idea-compose textarea::placeholder {
+  color: var(--text-3);
+}
+
+.card-idea-save {
+  display: block;
+  margin: 3px 0 0 auto;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-2xs);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out),
+    opacity var(--dur-micro) var(--ease-out);
+}
+
+.card-idea-save:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.card-idea-save:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.card-idea {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 5px;
+  border-radius: var(--r-sm);
+}
+
+.card-idea:hover {
+  background: var(--surface-2);
+}
+
+.card-idea-dot {
+  flex: 0 0 4px;
+  width: 4px;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.card-idea-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.card-idea-time {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 行内删除：悬停 / 聚焦时才露出来，平时不干扰阅读 ---------- */
+.card-row-del {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  opacity: 0;
+  transition:
+    opacity var(--dur-micro) var(--ease-out),
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-task:hover .card-row-del,
+.card-idea:hover .card-row-del,
+.card-row-del:focus-visible {
+  opacity: 1;
+}
+
+.card-row-del:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.card-row-del:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card-task .card-row-del {
+  margin-top: -1px;
+}
+
+.card-idea .card-row-del {
+  align-self: center;
+  margin-left: -2px;
+}
+
+/* ---------- 底部 ---------- */
+.card-foot {
+  flex: 0 0 auto;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-list);
+  font-size: 10.5px;
+  color: var(--text-3);
+  user-select: none;
+}
+
+.card-flash {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: color var(--dur-micro) var(--ease-out);
+}
+
+.card-flash.on {
+  color: var(--success);
+}
+
+/* 「打开中，请稍候…」这类等待提示：保持普通文字色，前面的转圈用弱一点的颜色 */
+.card-flash.busy {
+  color: var(--text-2);
+}
+
+.card-flash.busy .spin {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.card-foot-hint {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+/* 页脚「主窗口」：把原来右上角的打开按钮挪下来，标题栏只留常用的四个 */
+.card-home {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  color: var(--text-3);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-home:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.card-undo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-undo:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+@media (max-width: 340px) {
+  .card-foot-hint {
+    display: none;
+  }
+}
+
+/* ---------- 收成一条：只留日期、数量和一个展开按钮 ---------- */
+.card-shell-mini {
+  justify-content: center;
+}
+
+.card-mini {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  user-select: none;
+  touch-action: none;
+}
+
+.card-mini-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-mini-date {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  line-height: 16px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-mini-sub {
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-mini-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+}
+
+/* ---------- 主窗口收进托盘后的锁定态：窗口留着，内容不留在桌面上 ---------- */
+.card-shell-locked {
+  justify-content: center;
+}
+
+.card-locked {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  user-select: none;
+  touch-action: none;
+}
+
+.card-locked-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.card-locked-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  text-align: center;
+}
+
+.card-locked-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.card-locked-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: 19px;
+  color: var(--text-1);
+}
+
+.card-locked-sub {
+  font-size: var(--fs-2xs);
+  line-height: 16px;
+  color: var(--text-3);
+}
+
+.card-locked-btn {
+  margin-top: 4px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-locked-btn:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* 收成一条时也保留锁定态：只留锁图标、说明和解锁按钮 */
+.card-mini-locked {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-mini-unlock {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-mini-unlock:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ---------- 右下角缩放把手 ---------- */
+.card-resize {
+  --grip-line: var(--line-strong);
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 24px;
+  height: 24px;
+  cursor: nwse-resize;
+  /* 触控板 / 触屏拖动时不要滚页面 */
+  touch-action: none;
+  background-image: linear-gradient(
+    135deg,
+    transparent 0 48%,
+    var(--grip-line) 48% 56%,
+    transparent 56% 64%,
+    var(--grip-line) 64% 72%,
+    transparent 72%
+  );
+  background-size: 14px 14px;
+  background-position: right 5px bottom 5px;
+  background-repeat: no-repeat;
+  opacity: 0.9;
+  transition: opacity var(--dur-micro) var(--ease-out);
+}
+
+.card-resize:hover {
+  --grip-line: var(--accent);
+  opacity: 1;
+}
+
+/* 拖动缩放期间，整扇窗口都保持缩放光标，避免划过别的元素时闪成手型 */
+html.card-resizing,
+html.card-resizing * {
+  cursor: nwse-resize !important;
+  user-select: none !important;
+}
+
+/* 拖动标题栏期间不要选中文字 */
+html.card-dragging,
+html.card-dragging * {
+  user-select: none !important;
+}
+
+/* ---------- 待办详情：到点提醒时间 ---------- */
+.td-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.td-time-input {
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.td-time-input:focus {
+  border-color: var(--accent);
+}
+
+.td-time-input::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.td-time-clear {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+
+.td-time-clear:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.td-time-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* ---------- 到点提醒 ---------- */
+/* 桌面版是独立透明窗口：内容自带 10px 余量，投影才不会被窗口边缘切掉 */
+html[data-window='reminder'],
+html[data-window='reminder'] body,
+html[data-window='reminder'] #root {
+  margin: 0;
+  background: transparent;
+}
+
+.reminder-desktop {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  /* 一次到点很多条时，浮层不无限长高：到屏幕上限后内部滚动 */
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 网页版没有独立窗口，退回到应用内右下角 */
+.reminder-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 400;
+  width: min(340px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.reminder-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-page);
+  box-shadow: var(--shadow-3);
+  pointer-events: auto;
+  animation: reminder-in var(--dur-panel) var(--ease-out);
+}
+
+@keyframes reminder-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reminder-mark {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.reminder-body {
+  flex: 1;
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.reminder-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: var(--fs-sm);
+  line-height: 19px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.reminder-title:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reminder-meta {
+  margin-top: 3px;
+  font-size: var(--fs-2xs);
+  line-height: 15px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.reminder-secondary {
+  height: 25px;
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+  background: var(--surface-2);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.reminder-secondary:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.reminder-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 25px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-2xs);
+  color: var(--on-accent);
+  background: var(--accent);
+  transition: background var(--dur-micro) var(--ease-out);
+}
+
+.reminder-done:hover {
+  background: var(--accent-hover);
+}
+
+.reminder-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+
+.reminder-close:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-shell,
+  .reminder-card {
+    animation: none;
+  }
+}
+
+/* 宽一点的浮窗把格子放宽，不靠加字号撑场面；一行仍然按可用宽度自动排 */
+
+/* ============================================================
+   独立小应用窗口（?app=<id>）
+   ============================================================ */
+
+/* 和桌面浮窗一样用透明窗口：四周留白、圆角和投影都画在 .app-win 上，
+   桌面直接透出来，不再有窗底色铺出的一圈白边。 */
+html[data-window='app'],
+html[data-window='app'] body,
+html[data-window='app'] #root {
+  background: transparent;
+}
+
+.app-win {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 20px);
+  margin: 10px;
+  overflow: hidden;
+  background: var(--surface-page);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-3);
+  /* 静置半透明；鼠标移入窗口（含 iframe）即恢复 100% */
+  opacity: var(--app-win-opacity, 1);
+  transition: opacity var(--dur-panel) var(--ease-out);
+}
+
+.app-win:hover,
+.app-win:focus-within {
+  opacity: 1;
+}
+
+.app-win-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 48px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  user-select: none;
+  /* 透明窗体不能用 -webkit-app-region: drag：拖动由页面发 IPC 完成，
+     标题栏仍是普通 DOM，悬停恢复不透明度、双击最大化都能收到 */
+  cursor: default;
+}
+
+/* ---------- 四边四角的缩放把手（透明窗体没有系统边缘缩放） ---------- */
+.app-win-rz {
+  position: absolute;
+  z-index: 5;
+  /* 透明区域会把鼠标事件放过去，把手必须落在实心区域边缘 */
+  touch-action: none;
+}
+
+.app-win-rz-n,
+.app-win-rz-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.app-win-rz-n {
+  top: 0;
+}
+
+.app-win-rz-s {
+  bottom: 0;
+}
+
+.app-win-rz-e,
+.app-win-rz-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.app-win-rz-e {
+  right: 0;
+}
+
+.app-win-rz-w {
+  left: 0;
+}
+
+.app-win-rz-ne,
+.app-win-rz-nw,
+.app-win-rz-se,
+.app-win-rz-sw {
+  width: 14px;
+  height: 14px;
+}
+
+.app-win-rz-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.app-win-rz-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.app-win-rz-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.app-win-rz-se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* 拖边缩放时别选中文字，也别让 iframe 抢走指针 */
+html.app-win-resizing,
+html.app-win-resizing body {
+  cursor: default;
+  user-select: none;
+}
+
+.app-win-icon {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+}
+
+.app-win-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.app-win-title strong {
+  flex: 0 0 auto;
+  max-width: 45%;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-win-version {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-radius: var(--r-full);
+  padding: 1px 6px;
+}
+
+.app-win-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-win-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* 标题栏是拖动区，按钮和它下面的透明度弹层必须排除，否则点不到 */
+  -webkit-app-region: no-drag;
+}
+
+/* 置顶是持续状态，和只表示「弹层打开」的 .on 区分 */
+.app-win .icon-btn.pinned {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.app-win-opacity-wrap {
+  position: relative;
+  display: flex;
+}
+
+.app-win-opacity-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.app-win-opacity-pop {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  z-index: 31;
+  width: 200px;
+  padding: 10px 12px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-page);
+  box-shadow: var(--shadow-2);
+}
+
+.app-win-opacity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+}
+
+.app-win-opacity-head b {
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-win-opacity-pop input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-win-opacity-pop input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+}
+
+.app-win-opacity-pop input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border: 2px solid var(--surface-page);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+
+.app-win-opacity-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-3);
+}
+
+.app-win-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  background: var(--surface-list);
+}
+
+.app-win-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.app-win-hint,
+.app-win-error {
+  margin: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 460px;
+  padding: 24px;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.app-win-error {
+  color: var(--danger);
+}
+
+.app-win-foot {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--canvas);
+}
+
+/* ---------- 快捷入口（浮窗第三个 tab）：直接读首页的 home/ 配置 ---------- */
+.card-shortcut-body {
+  position: relative;
+}
+
+/* 顶部工具条：数量 + 排版开关 + 去首页管理，固定不随列表滚动 */
+.card-shortcut-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 8px;
+}
+
+.card-shortcut-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-layout-switch {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+.card-layout-switch button {
+  width: 24px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--text-3);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-layout-switch button:hover {
+  color: var(--text-1);
+}
+
+.card-layout-switch button.on {
+  background: var(--surface-page);
+  color: var(--text-1);
+  box-shadow: var(--shadow-1);
+}
+
+.card-shortcut-manage {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  color: var(--text-2);
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+.card-shortcut-manage:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.card-shortcut-scroll {
+  padding: 0 8px 8px;
+}
+
+.card-shortcut-group {
+  min-width: 0;
+}
+
+.card-shortcut-group + .card-shortcut-group {
+  margin-top: 9px;
+}
+
+/* 分组标题吸顶：滚到下面时仍知道自己在哪一组 */
+.card-shortcut-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 2px 3px;
+  background: var(--surface-page);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.card-shortcut-group-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+}
+
+.card-shortcut-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.card-shortcut-head i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 两种排版共用同一个容器：拖动落点线用伪元素画在卡片上 */
+.card-shortcuts {
+  position: relative;
+  min-width: 0;
+  border-radius: 10px;
+}
+
+.card-shortcuts.is-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 5px;
+}
+
+.card-shortcuts.is-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-shortcuts.is-empty {
+  min-height: 34px;
+  border: 1px dashed var(--line);
+  padding: 3px;
+}
+
+.card-shortcut {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    border-color var(--dur-micro) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+
+/* 拉起系统应用 / 网址期间：行里保持转圈，暂时别让重复点击 */
+.card-shortcut.opening {
+  cursor: progress;
+  pointer-events: none;
+}
+
+.is-grid .card-shortcut {
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 7px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.is-grid .card-shortcut:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.is-list .card-shortcut {
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+}
+
+.is-list .card-shortcut:hover {
+  background: var(--surface-2);
+}
+
+.card-shortcut:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* 拖动中的那张变淡；落点线画在目标卡片上沿 */
+.card-shortcut.dragging {
+  opacity: 0.35;
+}
+
+.card-shortcut.drop-before::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: -3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* ============================================================
+   桌面底部合并条（?dock=1）：收成一条的小应用都列在这里
+   ============================================================ */
+
+html[data-window='dock'],
+html[data-window='dock'] body,
+html[data-window='dock'] #root {
+  background: transparent;
+}
+
+.dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 4px;
+  user-select: none;
+}
+
+.dock-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px;
+  background: var(--surface-page);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  box-shadow: var(--shadow-3);
+  /* 条目特别多、窗口已经到屏幕宽度时，条目在胶囊内部横向滚动，不撑出边框 */
+  overflow-x: auto;
+  scrollbar-width: none;
+  cursor: grab;
+}
+
+.dock-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.dock-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  border: 1px solid transparent;
+  transition:
+    background var(--dur-micro) var(--ease-out),
+    border-color var(--dur-micro) var(--ease-out);
+}
+
+/* 拖合并条时别选中文字，鼠标保持「抓住」 */
+html.dock-dragging,
+html.dock-dragging body {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.dock-chip:hover {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+.dock-chip-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 3px 0 7px;
+  border-radius: var(--r-full) 0 0 var(--r-full);
+  font-size: var(--fs-xs);
+  color: var(--text-1);
+}
+
+.dock-chip-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.dock-chip-name {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-chip-x {
+  width: 22px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding-right: 3px;
+  border-radius: 0 var(--r-full) var(--r-full) 0;
+  color: var(--text-3);
+  opacity: 0;
+  transition:
+    opacity var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out);
+}
+
+/* 关闭按钮平时藏起来，鼠标移上去才出现，一条小条才不会显得零碎 */
+.dock-chip:hover .dock-chip-x,
+.dock-chip-x:focus-visible {
+  opacity: 1;
+}
+
+.dock-chip-x:hover {
+  color: var(--text-1);
+}
+
+.card-shortcuts.drop-end::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: -2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.card-shortcut-icon {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  /* 别裁掉角上的「未关联」标记；图标本身按 74% 缩进，不需要裁剪 */
+  overflow: visible;
+}
+
+/* 浮窗图标只有 24–30px，角标相应缩小，免得盖住图标本身 */
+.card-shortcut-icon .entry-unlinked-dot {
+  top: -2px;
+  right: -2px;
+  width: 11px;
+  height: 11px;
+  font-size: 8px;
+  box-shadow: 0 0 0 1px var(--surface);
+}
+
+.card-shortcut.unlinked .card-shortcut-sub {
+  color: var(--warning);
+}
+
+.is-grid .card-shortcut-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.is-list .card-shortcut-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.card-shortcut-icon img,
+.card-shortcut-icon svg {
+  display: block;
+}
+
+/* 常用网站品牌角标：浮窗图标只有 24–30px，字号跟着布局变 */
+.card-shortcut-badge {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.is-list .card-shortcut-badge {
+  font-size: 11px;
+}
+
+.card-shortcut-icon img {
+  width: 74%;
+  height: 74%;
+  object-fit: contain;
+}
+
+.card-shortcut-icon.missing {
+  opacity: 0.5;
+}
+
+.card-shortcut.missing .card-shortcut-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.card-shortcut-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.is-grid .card-shortcut-text {
+  width: 100%;
+  align-items: center;
+}
+
+.card-shortcut-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-xs);
+  line-height: 15px;
+  color: var(--text-1);
+}
+
+.is-grid .card-shortcut-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  text-align: center;
+  word-break: break-word;
+  line-height: 13px;
+}
+
+.is-list .card-shortcut-title {
+  white-space: nowrap;
+}
+
+.card-shortcut-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--text-3);
+}
+
+.is-grid .card-shortcut-sub {
+  display: none;
+}
+
+.card-shortcut-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  width: 100%;
+  padding: 4px 0;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.card-shortcut-hint {
+  padding: 10px 2px 2px;
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.card-shortcut-none {
+  flex-direction: column;
+  gap: 8px;
+  min-height: 118px;
+}
+
+.card-shortcut-none > span {
+  max-width: 230px;
+}
+
+.card-shortcut-action {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  transition: background var(--dur-micro) var(--ease-out);
+}
+
+.card-shortcut-action:hover {
+  background: var(--accent-soft-hover, var(--surface-3));
+}
+
+/* 宽一点的浮窗：格子放宽、图标略大，一行仍然自动多排 */
+@media (min-width: 420px) {
+  .card-shortcuts.is-grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  }
+
+  .is-grid .card-shortcut-icon {
+    width: 32px;
+    height: 32px;
+  }
+}

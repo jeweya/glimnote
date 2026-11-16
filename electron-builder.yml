@@ -1,0 +1,51 @@
+appId: com.glimnote.app
+productName: Glimnote
+copyright: Copyright © 2026 萤光笔记 Glimnote
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+
+asar: true
+compression: normal
+
+# MCP 服务随桌面端分发：安装后在 resources/mcp，用 .cmd 交给 Glimnote.exe（ELECTRON_RUN_AS_NODE）运行
+extraResources:
+  - from: mcp
+    to: mcp
+    filter:
+      - '**/*'
+
+win:
+  icon: build/icon.ico
+  # 安装目录、进程名和快捷方式统一用 Glimnote；MCP 启动器只认这一个可执行文件
+  executableName: Glimnote
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Glimnote-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 萤光笔记
+  deleteAppDataOnUninstall: false
+
+# 自动更新源：GitCode Releases（generic provider）。
+# GitCode 没有 releases/latest 固定直链：客户端会先查 API 取最新 tag，
+# 再把 feed 指到 https://gitcode.com/jewey/glimnote/releases/download/<tag>。
+# 这里的地址只用于打包元数据，实际检查以 electron/main.cjs 为准。
+publish:
+  provider: generic
+  url: https://gitcode.com/jewey/glimnote/releases/download
+
+# 目前只维护 Windows 桌面端；未验证的 mac / linux 打包目标不在这里声明，避免误导。

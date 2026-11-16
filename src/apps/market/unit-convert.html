@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单位换算</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --dim:#ede9e0;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--dim:#33322e;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:560px;display:flex;flex-direction:column;gap:12px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .sub{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .cats{display:flex;flex-wrap:wrap;gap:5px}
+  .cats button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--surface);
+    color:var(--sub);border-radius:999px;padding:4px 11px;cursor:pointer}
+  .cats button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:11px;color:var(--sub)}
+  .field .row{display:flex;gap:6px}
+  .field input,.field select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);
+    border-radius:10px;padding:9px 11px;min-width:0;width:100%}
+  .field input{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+  .field input:focus-visible,.field select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .field.select-only select{font-size:13px}
+  .swap{align-self:center;border:1px solid var(--line);background:var(--bg);color:var(--sub);
+    border-radius:999px;width:30px;height:30px;display:grid;place-items:center;cursor:pointer;line-height:0}
+  .swap:hover{color:var(--accent);border-color:var(--accent)}
+  .out{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;padding:9px 11px;
+    border:1px dashed var(--line);border-radius:10px;min-height:44px;overflow-wrap:anywhere;
+    background:var(--accent-soft);color:var(--accent)}
+  @media (max-width:380px){.out{font-size:16px;padding:9px 8px}}
+  .hint{font-size:11px;color:var(--sub);text-align:center}
+  .msg{font-size:12px;color:var(--warn);min-height:16px;text-align:center}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+  .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .quick button{font:inherit;font-size:11px;border:1px solid var(--line);background:var(--bg);
+    color:var(--sub);border-radius:8px;padding:6px 4px;cursor:pointer}
+  .quick button:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>单位换算</h1>
+    <p class="sub">长度、重量、温度日常够用；输入数值，结果实时换算</p>
+  </div>
+
+  <div class="cats" id="cats" role="group" aria-label="换算类别"></div>
+
+  <div class="panel">
+    <div class="field">
+      <label for="fromValue">从</label>
+      <div class="row">
+        <input id="fromValue" inputmode="decimal" value="1" aria-label="输入数值">
+        <select id="fromUnit" aria-label="原单位"></select>
+      </div>
+    </div>
+
+    <button type="button" class="swap" id="swap" title="对调" aria-label="对调上下单位">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v13"/><path d="M4 14l3 3 3-3"/><path d="M17 20V7"/><path d="M14 10l3-3 3 3"/></svg>
+    </button>
+
+    <div class="field">
+      <label for="toUnit">换成</label>
+      <div class="row">
+        <div class="out" id="out" aria-live="polite">1</div>
+        <select id="toUnit" aria-label="目标单位"></select>
+      </div>
+    </div>
+
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="quick" id="quick"></div>
+  <div class="msg" id="msg" role="status"></div>
+  <div class="foot">离线可用，输入即算</div>
+</div>
+
+<script>
+(function () {
+  var CATS = [
+    { id: 'length', name: '长度', base: 'm', units: [
+      { k: 'm', n: '米', f: 1 }, { k: 'km', n: '千米', f: 1000 }, { k: 'cm', n: '厘米', f: 0.01 },
+      { k: 'mm', n: '毫米', f: 0.001 }, { k: 'mile', n: '英里', f: 1609.344 },
+      { k: 'yd', n: '码', f: 0.9144 }, { k: 'ft', n: '英尺', f: 0.3048 }, { k: 'in', n: '英寸', f: 0.0254 },
+      { k: 'li', n: '里', f: 500 }, { k: 'chi', n: '尺', f: 1 / 3 }
+    ] },
+    { id: 'weight', name: '重量', base: 'kg', units: [
+      { k: 'kg', n: '千克', f: 1 }, { k: 'g', n: '克', f: 0.001 }, { k: 't', n: '吨', f: 1000 },
+      { k: 'jin', n: '斤', f: 0.5 }, { k: 'liang', n: '两', f: 0.05 },
+      { k: 'lb', n: '磅', f: 0.45359237 }, { k: 'oz', n: '盎司', f: 0.028349523125 }
+    ] },
+    { id: 'temp', name: '温度', special: true, units: [
+      { k: 'C', n: '摄氏度' }, { k: 'F', n: '华氏度' }, { k: 'K', n: '开尔文' }
+    ] },
+    { id: 'area', name: '面积', base: 'm2', units: [
+      { k: 'm2', n: '平方米', f: 1 }, { k: 'km2', n: '平方千米', f: 1e6 }, { k: 'cm2', n: '平方厘米', f: 1e-4 },
+      { k: 'mu', n: '亩', f: 2000 / 3 }, { k: 'ha', n: '公顷', f: 10000 },
+      { k: 'ft2', n: '平方英尺', f: 0.09290304 }, { k: 'acre', n: '英亩', f: 4046.8564224 }
+    ] },
+    { id: 'volume', name: '体积', base: 'l', units: [
+      { k: 'l', n: '升', f: 1 }, { k: 'ml', n: '毫升', f: 0.001 }, { k: 'm3', n: '立方米', f: 1000 },
+      { k: 'gal', n: '美制加仑', f: 3.785411784 }, { k: 'pt', n: '品脱', f: 0.473176473 },
+      { k: 'cup', n: '杯（美制）', f: 0.2365882365 }
+    ] },
+    { id: 'speed', name: '速度', base: 'mps', units: [
+      { k: 'mps', n: '米/秒', f: 1 }, { k: 'kph', n: '千米/时', f: 1 / 3.6 },
+      { k: 'mph', n: '英里/时', f: 0.44704 }, { k: 'knot', n: '节', f: 0.514444444 }
+    ] },
+    { id: 'data', name: '数据', base: 'B', units: [
+      { k: 'B', n: '字节 B', f: 1 }, { k: 'KB', n: 'KB', f: 1024 }, { k: 'MB', n: 'MB', f: 1048576 },
+      { k: 'GB', n: 'GB', f: 1073741824 }, { k: 'TB', n: 'TB', f: 1099511627776 },
+      { k: 'bit', n: '比特 bit', f: 0.125 }
+    ] }
+  ];
+
+  var catIndex = 0;
+  var el = {
+    cats: document.getElementById('cats'), from: document.getElementById('fromValue'),
+    fromUnit: document.getElementById('fromUnit'), toUnit: document.getElementById('toUnit'),
+    out: document.getElementById('out'), hint: document.getElementById('hint'),
+    quick: document.getElementById('quick'), msg: document.getElementById('msg'),
+    swap: document.getElementById('swap')
+  };
+
+  function cat() { return CATS[catIndex]; }
+  function unitOf(list, k) {
+    for (var i = 0; i < list.length; i += 1) if (list[i].k === k) return list[i];
+    return list[0];
+  }
+
+  function convert(value, fromK, toK) {
+    var c = cat();
+    if (c.special) {
+      // 先统一成摄氏度
+      var celsius = fromK === 'C' ? value : fromK === 'F' ? (value - 32) * 5 / 9 : value - 273.15;
+      return toK === 'C' ? celsius : toK === 'F' ? celsius * 9 / 5 + 32 : celsius + 273.15;
+    }
+    return value * unitOf(c.units, fromK).f / unitOf(c.units, toK).f;
+  }
+
+  function fmt(n) {
+    if (!isFinite(n)) return '—';
+    var abs = Math.abs(n);
+    if (abs === 0) return '0';
+    if (abs >= 1e15 || abs < 1e-9) return n.toExponential(4).replace('e', ' × 10^');
+    if (abs >= 1e9) return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+    if (abs >= 1) return String(Number(n.toFixed(6)));
+    return String(Number(n.toPrecision(6)));
+  }
+
+  function recalc() {
+    var raw = String(el.from.value).replace(/[,，\s]/g, '');
+    var value = Number(raw);
+    if (raw === '' || !isFinite(value)) {
+      el.out.textContent = '—';
+      el.msg.textContent = raw === '' ? '' : '请输入数字';
+      return;
+    }
+    el.msg.textContent = '';
+    var res = convert(value, el.fromUnit.value, el.toUnit.value);
+    el.out.textContent = fmt(res);
+    var c = cat();
+    var left = unitOf(c.units, el.fromUnit.value);
+    var right = unitOf(c.units, el.toUnit.value);
+    el.hint.textContent = fmt(value) + ' ' + left.n + ' = ' + fmt(res) + ' ' + right.n;
+  }
+
+  function fillSelects() {
+    var c = cat();
+    var keepFrom = el.fromUnit.value;
+    var keepTo = el.toUnit.value;
+    el.fromUnit.textContent = '';
+    el.toUnit.textContent = '';
+    c.units.forEach(function (u) {
+      var o1 = document.createElement('option');
+      o1.value = u.k; o1.textContent = u.n;
+      var o2 = document.createElement('option');
+      o2.value = u.k; o2.textContent = u.n;
+      el.fromUnit.appendChild(o1);
+      el.toUnit.appendChild(o2);
+    });
+    var keys = c.units.map(function (u) { return u.k; });
+    el.fromUnit.value = keys.indexOf(keepFrom) >= 0 ? keepFrom : keys[0];
+    el.toUnit.value = keys.indexOf(keepTo) >= 0 ? keepTo : keys[1] || keys[0];
+    if (el.toUnit.value === el.fromUnit.value) el.toUnit.value = keys[keys.length - 1];
+
+    el.quick.textContent = '';
+    keys.slice(0, 3).forEach(function (k) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = '换成' + unitOf(c.units, k).n;
+      b.addEventListener('click', function () {
+        el.toUnit.value = k;
+        recalc();
+      });
+      el.quick.appendChild(b);
+    });
+  }
+
+  function renderCats() {
+    el.cats.textContent = '';
+    CATS.forEach(function (c, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = c.name;
+      b.setAttribute('aria-pressed', String(i === catIndex));
+      b.addEventListener('click', function () {
+        catIndex = i;
+        el.from.value = c.id === 'temp' ? '25' : '1';
+        fillSelects();
+        renderCats();
+        recalc();
+        window.scrollTo(0, 0);
+      });
+      el.cats.appendChild(b);
+    });
+  }
+
+  el.from.addEventListener('input', recalc);
+  el.fromUnit.addEventListener('change', recalc);
+  el.toUnit.addEventListener('change', recalc);
+  el.swap.addEventListener('click', function () {
+    var oldFrom = el.fromUnit.value;
+    var oldTo = el.toUnit.value;
+    el.fromUnit.value = oldTo;
+    el.toUnit.value = oldFrom;
+    // 用真实数值对调，别拿格式化后的文本（科学计数/千分位会解析失败）
+    var raw = String(el.from.value).replace(/[,，\s]/g, '');
+    var value = Number(raw);
+    if (raw !== '' && isFinite(value)) {
+      el.from.value = String(Number(convert(value, oldFrom, oldTo).toPrecision(12)));
+    }
+    recalc();
+  });
+
+  renderCats();
+  fillSelects();
+  recalc();
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

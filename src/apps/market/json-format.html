@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSON 格式化</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --dim:#f4f1e9;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--dim:#2d2d2a;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 24px}
+  .wrap{width:100%;max-width:900px;display:flex;flex-direction:column;gap:10px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .tools{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .tools button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--surface);
+    color:var(--sub);border-radius:8px;padding:5px 10px;cursor:pointer}
+  .tools button:hover{border-color:var(--accent);color:var(--accent)}
+  .tools button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tools button.primary:hover{filter:brightness(1.06)}
+  .tools button.danger:hover{border-color:var(--warn);color:var(--warn)}
+  .tools select{font:inherit;font-size:12px;color:var(--sub);background:var(--surface);
+    border:1px solid var(--line);border-radius:8px;padding:5px 6px}
+  .panes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:700px){.panes{grid-template-columns:1fr}}
+  .pane{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .pane h2{margin:0;font-size:12px;font-weight:500;color:var(--sub);display:flex;
+    justify-content:space-between;align-items:center}
+  textarea{width:100%;min-height:230px;resize:vertical;font-family:ui-monospace,SFMono-Regular,
+    Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;color:inherit;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;padding:11px;box-shadow:var(--shadow)}
+  textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  textarea[readonly]{color:var(--text)}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+  @media (max-width:520px){.stats{grid-template-columns:repeat(3,1fr)}}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:6px 4px;text-align:center}
+  .stat b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+  .stat span{font-size:10px;color:var(--sub)}
+  .msg{font-size:12px;color:var(--accent);min-height:18px;white-space:pre-wrap;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .msg.err{color:var(--warn)}
+  .tree-wrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:8px 11px;max-height:260px;overflow:auto}
+  .tree-wrap .empty{font-size:12px;color:var(--sub)}
+  .tree{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+    line-height:1.7}
+  details{margin-left:12px}
+  details>summary{cursor:pointer;color:var(--sub);list-style:none}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:'▸';display:inline-block;width:14px;color:var(--sub)}
+  details[open]>summary::before{content:'▾'}
+  .tk{color:var(--text)}
+  .tkind{margin-left:6px;font-size:10.5px;color:var(--sub)}
+  .leaf{margin-left:26px;display:flex;gap:6px;min-width:0}
+  .leaf .lk{color:var(--accent)}
+  .leaf .lv{color:var(--text);word-break:break-all}
+  .leaf .lv.str{color:#8a5a2b}
+  .leaf .lv.num{color:#2f6b58}
+  .leaf .lv.bool{color:#7b5aa6}
+  .leaf .lv.null{color:var(--sub)}
+  @media (prefers-color-scheme:dark){
+    .leaf .lv.str{color:#d8b07a}
+    .leaf .lv.num{color:#8fd0b5}
+    .leaf .lv.bool{color:#c0a5e8}
+  }
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>JSON 格式化</h1>
+      <p>排版、压缩、校验、排序键名，还能展开看结构</p>
+    </div>
+  </div>
+
+  <div class="tools">
+    <select id="indent" aria-label="缩进宽度">
+      <option value="2">缩进 2 空格</option>
+      <option value="4">缩进 4 空格</option>
+      <option value="tab">缩进 Tab</option>
+    </select>
+    <button type="button" data-act="format" class="primary">格式化</button>
+    <button type="button" data-act="minify">压缩</button>
+    <button type="button" data-act="check">校验</button>
+    <button type="button" data-act="sort">排序键名</button>
+    <button type="button" data-act="escape">转义为字符串</button>
+    <button type="button" data-act="unescape">去转义</button>
+    <button type="button" data-act="copy">复制结果</button>
+    <button type="button" data-act="apply">结果替换输入</button>
+    <button type="button" data-act="sample">示例</button>
+    <button type="button" data-act="clear" class="danger">清空</button>
+  </div>
+
+  <div class="panes">
+    <section class="pane">
+      <h2><span>原始内容</span><span>Ctrl + Enter 格式化</span></h2>
+      <textarea id="input" spellcheck="false" aria-label="原始 JSON"
+        placeholder='把 JSON 粘到这里，比如 {"name":"萤光笔记","count":3}'></textarea>
+    </section>
+    <section class="pane">
+      <h2><span>结果</span><span id="outNote"></span></h2>
+      <textarea id="output" spellcheck="false" aria-label="处理结果" readonly
+        placeholder="处理后的内容会出现在这里"></textarea>
+    </section>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="s-in">0</b><span>输入字符</span></div>
+    <div class="stat"><b id="s-out">0</b><span>结果字符</span></div>
+    <div class="stat"><b id="s-line">0</b><span>结果行数</span></div>
+    <div class="stat"><b id="s-byte">0</b><span>UTF-8 字节</span></div>
+    <div class="stat"><b id="s-node">0</b><span>键值节点</span></div>
+  </div>
+
+  <div class="msg" id="msg" role="status"></div>
+
+  <div class="tree-wrap">
+    <div class="tree" id="tree"><div class="empty">格式化或校验后，这里显示可折叠的结构</div></div>
+  </div>
+
+  <div class="foot">纯本地处理，内容不会上传 · 超过 JS 安全整数的数字会先拦住，避免悄悄丢精度</div>
+</div>
+
+<script>
+(function () {
+  var input = document.getElementById('input');
+  var output = document.getElementById('output');
+  var msg = document.getElementById('msg');
+  var tree = document.getElementById('tree');
+  var indentEl = document.getElementById('indent');
+  var outNote = document.getElementById('outNote');
+  var statIn = document.getElementById('s-in');
+  var statOut = document.getElementById('s-out');
+  var statLine = document.getElementById('s-line');
+  var statByte = document.getElementById('s-byte');
+  var statNode = document.getElementById('s-node');
+  var lastValue = null;
+
+  var numToken = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+  function unsafeNumber(text) {
+    var i = 0, n = text.length, inString = false, esc = false;
+    while (i < n) {
+      var ch = text.charAt(i);
+      if (inString) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inString = false;
+        i += 1;
+        continue;
+      }
+      if (ch === '"') { inString = true; i += 1; continue; }
+      if (ch === '-' || (ch >= '0' && ch <= '9')) {
+        numToken.lastIndex = i;
+        var m = numToken.exec(text);
+        if (!m) { i += 1; continue; }
+        var lit = m[0];
+        var num = Number(lit);
+        var integer = lit.indexOf('.') < 0 && lit.indexOf('e') < 0 && lit.indexOf('E') < 0;
+        if (!isFinite(num) || (integer && Math.abs(num) > 9007199254740991)) return lit;
+        i += lit.length;
+        continue;
+      }
+      i += 1;
+    }
+    return '';
+  }
+
+  function say(text, isErr) {
+    msg.textContent = text;
+    msg.className = 'msg' + (isErr ? ' err' : '');
+  }
+
+  function bytes(text) {
+    try { return new TextEncoder().encode(text).length; }
+    catch (e) { return unescape(encodeURIComponent(text)).length; }
+  }
+
+  function countNodes(value) {
+    var count = 0;
+    var stack = [value];
+    while (stack.length && count < 500000) {
+      var item = stack.pop();
+      count += 1;
+      if (item && typeof item === 'object') {
+        if (Array.isArray(item)) {
+          for (var i = 0; i < item.length; i += 1) stack.push(item[i]);
+        } else {
+          for (var key in item) {
+            if (Object.prototype.hasOwnProperty.call(item, key)) stack.push(item[key]);
+          }
+        }
+      }
+    }
+    return count;
+  }
+
+  function stats() {
+    statIn.textContent = String(input.value.length);
+    statOut.textContent = String(output.value.length);
+    statLine.textContent = String(output.value ? output.value.split('\n').length : 0);
+    statByte.textContent = String(bytes(output.value));
+    statNode.textContent = lastValue === null ? '0' : String(countNodes(lastValue));
+  }
+
+  function locate(text, index) {
+    var pos = Math.max(0, Math.min(index, text.length));
+    var before = text.slice(0, pos);
+    var line = before.split('\n').length;
+    var col = pos - before.lastIndexOf('\n');
+    var lineStart = before.lastIndexOf('\n') + 1;
+    var lineEnd = text.indexOf('\n', pos);
+    if (lineEnd < 0) lineEnd = text.length;
+    var source = text.slice(lineStart, lineEnd);
+    var pad = col - 1;
+    var snippet = source.length > 90 ? source.slice(0, 90) + '…' : source;
+    var caret = '';
+    if (pad < 90) {
+      var shown = 0;
+      var width = 0;
+      while (shown < pad && shown < snippet.length) {
+        width += /[一-龥＀-￯]/.test(snippet.charAt(shown)) ? 2 : 1;
+        shown += 1;
+      }
+      caret = '\n' + new Array(width + 1).join(' ') + '^';
+    }
+    return '第 ' + line + ' 行第 ' + col + ' 列\n' + snippet + caret;
+  }
+
+  function parseInput() {
+    var text = input.value.trim();
+    if (!text) throw new Error('先粘一段 JSON 进来');
+    var big = unsafeNumber(text);
+    if (big) throw new Error('「' + big + '」超出 JS 安全整数范围，继续处理会悄悄丢精度，已取消');
+    try {
+      return { value: JSON.parse(text), text: text };
+    } catch (e) {
+      var message = (e && e.message) || '解析失败';
+      var m = /position\s+(\d+)/i.exec(message);
+      var detail = message.replace(/\s*\(line \d+ column \d+\)$/i, '');
+      if (m) {
+        var index = Number(m[1]);
+        // 不同引擎的 position 可能从 0 或 1 开始，越界时退回到末尾
+        if (index >= text.length) index = text.length - 1;
+        throw new Error(detail + '\n' + locate(text, index));
+      }
+      throw new Error(detail);
+    }
+  }
+
+  function sortKeys(value) {
+    if (Array.isArray(value)) return value.map(sortKeys);
+    if (value && typeof value === 'object') {
+      var out = {};
+      Object.keys(value).sort(function (a, b) { return a.localeCompare(b); }).forEach(function (key) {
+        out[key] = sortKeys(value[key]);
+      });
+      return out;
+    }
+    return value;
+  }
+
+  function indentUnit() {
+    var v = indentEl.value;
+    return v === 'tab' ? '\t' : Number(v);
+  }
+
+  function renderTree(value) {
+    tree.textContent = '';
+    var count = 0;
+    var skipped = false;
+
+    function leaf(key, val, parent) {
+      var row = document.createElement('div');
+      row.className = 'leaf';
+      var lk = document.createElement('span');
+      lk.className = 'lk';
+      lk.textContent = key;
+      var lv = document.createElement('span');
+      lv.className = 'lv';
+      if (val === null) {
+        lv.classList.add('null');
+        lv.textContent = 'null';
+      } else if (typeof val === 'string') {
+        lv.classList.add('str');
+        lv.textContent = JSON.stringify(val);
+      } else if (typeof val === 'number') {
+        lv.classList.add('num');
+        lv.textContent = String(val);
+      } else if (typeof val === 'boolean') {
+        lv.classList.add('bool');
+        lv.textContent = String(val);
+      } else {
+        lv.textContent = String(val);
+      }
+      row.appendChild(lk);
+      row.appendChild(lv);
+      parent.appendChild(row);
+    }
+
+    function node(key, val, depth, parent) {
+      count += 1;
+      if (count > 3000) {
+        if (!skipped) {
+          skipped = true;
+          var tip = document.createElement('div');
+          tip.className = 'empty';
+          tip.textContent = '结构太大，只显示了前 3000 个节点';
+          tree.appendChild(tip);
+        }
+        return;
+      }
+      if (!val || typeof val !== 'object') {
+        leaf(key, val, parent);
+        return;
+      }
+      var box = document.createElement('details');
+      if (depth < 2) box.open = true;
+      var summary = document.createElement('summary');
+      var tk = document.createElement('span');
+      tk.className = 'tk';
+      tk.textContent = key;
+      var kind = document.createElement('span');
+      kind.className = 'tkind';
+      kind.textContent = Array.isArray(val) ? '数组 · ' + val.length + ' 项' : '对象 · ' + Object.keys(val).length + ' 键';
+      summary.appendChild(tk);
+      summary.appendChild(kind);
+      box.appendChild(summary);
+      var kids = document.createElement('div');
+      if (Array.isArray(val)) {
+        for (var i = 0; i < val.length; i += 1) node('[' + i + ']', val[i], depth + 1, kids);
+      } else {
+        Object.keys(val).forEach(function (k) { node(k, val[k], depth + 1, kids); });
+      }
+      box.appendChild(kids);
+      parent.appendChild(box);
+    }
+
+    var root = document.createElement('div');
+    node('根', value, 0, root);
+    tree.appendChild(root);
+  }
+
+  function success(value, note) {
+    lastValue = value;
+    renderTree(value);
+    outNote.textContent = note || '';
+    stats();
+  }
+
+  var ACTIONS = {
+    format: function () {
+      try {
+        var parsed = parseInput();
+        output.value = JSON.stringify(parsed.value, null, indentUnit());
+        success(parsed.value, '格式化完成');
+        say('合法 JSON · ' + countNodes(parsed.value) + ' 个节点');
+      } catch (e) {
+        say((e && e.message) || '处理失败', true);
+      }
+    },
+    minify: function () {
+      try {
+        var parsed = parseInput();
+        output.value = JSON.stringify(parsed.value);
+        success(parsed.value, '已压缩');
+        var saved = parsed.text.length - output.value.length;
+        say('压缩完成' + (saved > 0 ? '，少了 ' + saved + ' 个字符' : ''));
+      } catch (e) {
+        say((e && e.message) || '处理失败', true);
+      }
+    },
+    check: function () {
+      try {
+        var parsed = parseInput();
+        success(parsed.value, '仅校验');
+        var type = Array.isArray(parsed.value) ? '数组' : parsed.value === null ? 'null' : typeof parsed.value;
+        say('合法 JSON · 顶层是' + type + ' · ' + countNodes(parsed.value) + ' 个节点');
+      } catch (e) {
+        say((e && e.message) || '不是合法 JSON', true);
+      }
+    },
+    sort: function () {
+      try {
+        var parsed = parseInput();
+        var sorted = sortKeys(parsed.value);
+        output.value = JSON.stringify(sorted, null, indentUnit());
+        success(sorted, '键名已排序');
+        say('已按字母顺序排好每一层的键名');
+      } catch (e) {
+        say((e && e.message) || '处理失败', true);
+      }
+    },
+    escape: function () {
+      var text = input.value;
+      if (!text) return say('先粘点内容', true);
+      output.value = JSON.stringify(text);
+      outNote.textContent = '已转义';
+      lastValue = output.value;
+      stats();
+      tree.textContent = '';
+      tree.appendChild(document.createTextNode('转义结果是字符串，没有可展开的结构'));
+      say('已转成一段 JSON 字符串字面量，可以直接放进代码里');
+    },
+    unescape: function () {
+      var text = input.value.trim();
+      if (!text) return say('先粘转义后的内容', true);
+      try {
+        var value = JSON.parse(text);
+        if (typeof value !== 'string') throw new Error('这段 JSON 的顶层不是字符串，没法去转义');
+        output.value = value;
+        outNote.textContent = '已去转义';
+        lastValue = null;
+        stats();
+        tree.textContent = '';
+        tree.appendChild(document.createTextNode('去转义结果已放在右侧'));
+        say('已还原成原始文本');
+      } catch (e) {
+        say((e && e.message) || '去转义失败', true);
+      }
+    },
+    copy: function () {
+      if (!output.value) return say('右侧还没有内容', true);
+      var ok = function () { say('已复制 ' + output.value.length + ' 个字符'); };
+      var fail = function () {
+        output.focus();
+        output.select();
+        say('已全选，按 Ctrl+C 复制', true);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(output.value).then(ok, fail);
+          return;
+        }
+      } catch (e) { /* 兜底 */ }
+      try {
+        output.focus();
+        output.select();
+        document.execCommand('copy') ? ok() : fail();
+      } catch (e2) {
+        fail();
+      }
+    },
+    apply: function () {
+      if (!output.value) return say('右侧还没有内容', true);
+      input.value = output.value;
+      stats();
+      say('已用结果替换左侧内容');
+    },
+    sample: function () {
+      input.value = JSON.stringify({
+        name: '萤光笔记',
+        version: 1,
+        tags: ['日记', '灵感'],
+        sync: { provider: 'gitcode', private: true },
+        counts: { notes: 32, tasks: 5 },
+        updated: '2026-11-10T09:30:00+08:00',
+      }, null, 2);
+      lastValue = null;
+      output.value = '';
+      outNote.textContent = '';
+      stats();
+      say('示例已填入，点「格式化」试试');
+    },
+    clear: function () {
+      input.value = '';
+      output.value = '';
+      lastValue = null;
+      outNote.textContent = '';
+      stats();
+      tree.textContent = '';
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '格式化或校验后，这里显示可折叠的结构';
+      tree.appendChild(empty);
+      say('');
+      input.focus();
+    },
+  };
+
+  document.querySelectorAll('[data-act]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var act = ACTIONS[btn.getAttribute('data-act')];
+      if (act) act();
+    });
+  });
+
+  input.addEventListener('input', stats);
+  output.addEventListener('input', stats);
+
+  input.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      ACTIONS.format();
+    }
+  });
+
+  stats();
+})();
+</script>
+</body>
+</html>

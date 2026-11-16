@@ -1,0 +1,198 @@
+/* 渲染层崩溃时的全屏错误页：不依赖 App 内部类名，保证任何情况下都能正常显示 */
+.crash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--canvas, #fbfbf9);
+  color: var(--text-1, #2a2a28);
+  font-family: var(--font-ui, 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif);
+}
+
+.crash-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 28px;
+  border: 1px solid var(--line, #e6e3dc);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  box-shadow: var(--shadow-3, 0 12px 40px rgba(0, 0, 0, 0.08));
+  text-align: center;
+}
+
+.crash-mark {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+  background: var(--accent, #f2b544);
+  color: var(--on-accent, #fff);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 44px;
+}
+
+.crash-card h1 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.crash-card p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-2, #6b6a65);
+}
+
+.crash-detail {
+  max-height: 120px;
+  margin: 12px 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface-2, #f6f4ef);
+  color: var(--warning, #8a6a3a);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.crash-actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong, #dcd8cf);
+  border-radius: 9px;
+  background: var(--surface, #fff);
+  color: var(--text-1, #2a2a28);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.crash-actions button:hover {
+  background: var(--surface-2, #f7f5f0);
+}
+
+.crash-actions .crash-primary {
+  border-color: var(--accent, #f2b544);
+  background: var(--accent, #f2b544);
+  color: var(--on-accent, #fff);
+}
+
+.crash-actions .crash-primary:hover {
+  background: var(--accent-hover, #e9a92f);
+}
+
+.crash-hint {
+  margin: 12px 0 0 !important;
+  font-size: 11px !important;
+  color: var(--text-3, #9a988f) !important;
+}
+
+/* 重置是不可撤销的操作：崩溃页上的「重置应用」也要先弹一次确认，避免误点 */
+.crash-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(24, 22, 18, 0.42);
+  animation: crash-fade 120ms ease-out;
+}
+
+.crash-confirm {
+  width: 100%;
+  max-width: 380px;
+  padding: 22px 22px 18px;
+  border: 1px solid var(--line, #e6e3dc);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--text-1, #2a2a28);
+  box-shadow: var(--shadow-3, 0 18px 50px rgba(0, 0, 0, 0.18));
+  text-align: center;
+  animation: crash-pop 140ms ease-out;
+}
+
+.crash-confirm h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.crash-confirm p {
+  margin: 0 0 4px;
+  color: var(--text-2, #6b6a65);
+  font-size: 13px;
+  line-height: 1.75;
+  text-align: left;
+}
+
+.crash-confirm .crash-confirm-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(180, 72, 60, 0.09);
+  color: var(--danger, #b4483c);
+  font-size: 12px;
+}
+
+.crash-confirm .crash-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+}
+
+.crash-confirm .crash-actions button {
+  min-height: 34px;
+  padding: 0 16px;
+}
+
+.crash-confirm .crash-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 与站内删除类按钮保持一致：红字描边，而不是整块红底 */
+.crash-confirm .crash-danger {
+  border-color: color-mix(in srgb, var(--danger, #b4483c) 42%, transparent);
+  background: transparent;
+  color: var(--danger, #b4483c);
+}
+
+.crash-confirm .crash-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #b4483c) 9%, transparent);
+}
+
+@keyframes crash-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes crash-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

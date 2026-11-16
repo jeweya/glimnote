@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>周报助手</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#2f6b58;--accent-soft:#e8f1ed;--track:#efece4;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#6fae94;--accent-soft:#22302b;--track:#2e2e2a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:660px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .week{font-size:12px;color:var(--sub);white-space:nowrap}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px;
+    display:flex;flex-direction:column;gap:12px}
+  label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--sub)}
+  label b{font-weight:600;color:var(--text);font-size:13px}
+  textarea{min-height:74px;resize:vertical;font:inherit;font-size:13px;line-height:1.55;color:var(--text);
+    background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
+  textarea:focus{border-color:var(--accent)}
+  .hint{font-size:11px;color:var(--sub);font-weight:400}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer}
+  .btn:hover{background:var(--bg)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .out{display:none;background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:12px 14px;
+    white-space:pre-wrap;font-size:13px;line-height:1.7;word-break:break-word}
+  .out.on{display:block}
+  .msg{font-size:12px;color:var(--accent);min-height:16px}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>周报助手</h1><p>每行一条，生成能直接发出去的周报</p></div>
+    <div class="week" id="weekLabel"></div>
+  </div>
+  <div class="card">
+    <label>
+      <b>本周完成</b>
+      <textarea id="done" placeholder="上线了新版本&#10;修掉了 3 个线上问题"></textarea>
+    </label>
+    <label>
+      <b>下周计划</b>
+      <textarea id="plan" placeholder="完成支付流程联调&#10;补齐回归测试"></textarea>
+    </label>
+    <label>
+      <b>风险与需要支持 <span class="hint">可留空</span></b>
+      <textarea id="risk" placeholder="需要设计同学在周三前给出图标"></textarea>
+    </label>
+    <div class="actions">
+      <button class="btn primary" id="make" type="button">生成周报</button>
+      <button class="btn" id="copy" type="button">复制全文</button>
+      <button class="btn" id="clear" type="button">清空</button>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+    <div class="out" id="out"></div>
+  </div>
+  <div class="foot">草稿按周保存，下周一自动换新 · 每个换行算一条</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'report';
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    if (bridge.get) return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+    return Promise.resolve(d);
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var doneEl = document.getElementById('done');
+  var planEl = document.getElementById('plan');
+  var riskEl = document.getElementById('risk');
+  var out = document.getElementById('out');
+  var msg = document.getElementById('msg');
+
+  function weekStart(d) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var day = t.getDay() || 7;
+    t.setDate(t.getDate() - day + 1);
+    return t;
+  }
+  function md(d) { return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'; }
+  function rangeLabel(a, b) {
+    if (a.getFullYear() !== b.getFullYear()) {
+      return a.getFullYear() + ' 年 ' + md(a) + ' – ' + b.getFullYear() + ' 年 ' + md(b);
+    }
+    return md(a) + ' – ' + md(b);
+  }
+  function keyOf(d) {
+    var s = weekStart(d);
+    return s.getFullYear() + '-' + String(s.getMonth() + 1).padStart(2, '0') + '-' + String(s.getDate()).padStart(2, '0');
+  }
+
+  var start = weekStart(new Date());
+  var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  var weekLabel = document.getElementById('weekLabel');
+  weekLabel.textContent = rangeLabel(start, end);
+
+  // 按周分开保存，跨周后不会把上一周的草稿覆盖掉
+  var weeks = {};
+  var touched = false;
+  var HISTORY_WEEKS = 8;
+  function normalizeWeeks(saved) {
+    if (!saved || typeof saved !== 'object') return {};
+    if (saved.weeks && typeof saved.weeks === 'object') return saved.weeks;
+    if (saved.week) {
+      var one = {};
+      one[saved.week] = { done: String(saved.done || ''), plan: String(saved.plan || ''), risk: String(saved.risk || '') };
+      return one;
+    }
+    return {};
+  }
+  function pruneWeeks() {
+    var keys = Object.keys(weeks).sort();
+    while (keys.length > HISTORY_WEEKS) delete weeks[keys.shift()];
+  }
+
+  function lines(text) {
+    return String(text || '').split(/\n+/).map(function (s) { return s.replace(/^\s*[-*·•]\s*/, '').trim(); })
+      .filter(Boolean);
+  }
+
+  function build() {
+    var parts = [];
+    var done = lines(doneEl.value);
+    var plan = lines(planEl.value);
+    var risk = lines(riskEl.value);
+    if (done.length) {
+      parts.push('本周完成：');
+      done.forEach(function (t, i) { parts.push((i + 1) + '. ' + t); });
+    }
+    if (plan.length) {
+      if (parts.length) parts.push('');
+      parts.push('下周计划：');
+      plan.forEach(function (t, i) { parts.push((i + 1) + '. ' + t); });
+    }
+    if (risk.length) {
+      if (parts.length) parts.push('');
+      parts.push('风险与需要支持：');
+      risk.forEach(function (t, i) { parts.push((i + 1) + '. ' + t); });
+    }
+    return parts.join('\n');
+  }
+
+  function render() {
+    var text = build();
+    out.textContent = text;
+    out.classList.toggle('on', Boolean(text));
+    return text;
+  }
+
+  function save() {
+    weeks[keyOf(new Date())] = { done: doneEl.value, plan: planEl.value, risk: riskEl.value };
+    pruneWeeks();
+    set(KEY, { weeks: weeks });
+  }
+
+  [doneEl, planEl, riskEl].forEach(function (el) {
+    el.addEventListener('input', function () { touched = true; msg.textContent = ''; save(); render(); });
+  });
+
+  document.getElementById('make').addEventListener('click', function () {
+    var text = render();
+    msg.textContent = text ? '周报已生成，可以复制了' : '先写点本周完成的事';
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = render();
+    if (!text) { msg.textContent = '还没有内容可复制'; return; }
+    function ok() { msg.textContent = '已复制到剪贴板'; }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        // execCommand 返回 false 时不能误报成功
+        if (document.execCommand('copy')) ok();
+        else msg.textContent = '复制失败，请手动选中上面的文字';
+      } catch (e) {
+        msg.textContent = '复制失败，请手动选中上面的文字';
+      }
+      ta.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok, fallback);
+    } else fallback();
+  });
+
+  document.getElementById('clear').addEventListener('click', function () {
+    doneEl.value = ''; planEl.value = ''; riskEl.value = '';
+    save(); render();
+    msg.textContent = '已清空本周草稿';
+  });
+
+  function tickWeek() {
+    var ns = weekStart(new Date());
+    if (ns.getTime() === start.getTime()) return;
+    start = ns;
+    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    weekLabel.textContent = rangeLabel(start, end);
+    // 新一周有草稿就填进来；当前输入框不为空时保持原样，避免清掉正在写的内容
+    var saved = weeks[keyOf(new Date())];
+    if (saved && !doneEl.value && !planEl.value && !riskEl.value) {
+      doneEl.value = saved.done || '';
+      planEl.value = saved.plan || '';
+      riskEl.value = saved.risk || '';
+      render();
+    }
+    msg.textContent = '已经进入新的一周，内容会记在 ' + keyOf(new Date()) + ' 这一周';
+  }
+
+  get(KEY, null).then(function (saved) {
+    weeks = normalizeWeeks(saved);
+    var current = weeks[keyOf(new Date())];
+    if (!touched && current) {
+      doneEl.value = current.done || '';
+      planEl.value = current.plan || '';
+      riskEl.value = current.risk || '';
+    }
+    // 旧版单周数据顺手迁移成按周保存
+    if (!touched && saved && !saved.weeks) save();
+    render();
+    setInterval(tickWeek, 60000);
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

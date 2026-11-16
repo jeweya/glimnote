@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>错题本</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#b4483c;--accent-soft:#f7e7e4;--green:#2f6b58;--green-soft:#e8f1ed;--track:#efece4;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#e08a7d;--accent-soft:#3a2624;--green:#6fae94;--green-soft:#22302b;--track:#2e2e2a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:640px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .left{font-size:12px;color:var(--sub);white-space:nowrap}
+  .head .left b{font-size:16px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+  form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media (max-width:560px){form{grid-template-columns:1fr}}
+  input,textarea,select{font:inherit;font-size:13px;color:var(--text);background:var(--bg);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;outline:none;width:100%}
+  input:focus,textarea:focus{border-color:var(--accent)}
+  textarea{resize:vertical;min-height:58px;line-height:1.55}
+  .full{grid-column:1 / -1}
+  .row-end{grid-column:1 / -1;display:flex;justify-content:flex-end;gap:8px;align-items:center}
+  .msg{font-size:12px;color:var(--accent);min-height:16px}
+  .btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .filters{display:flex;flex-wrap:wrap;gap:5px;margin:14px 0 10px}
+  .chip{border:1px solid var(--line);background:var(--surface);color:var(--sub);font:inherit;font-size:11px;
+    padding:3px 10px;border-radius:999px;cursor:pointer}
+  .chip.on{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:var(--bg)}
+  .item-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .subject{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+  .item-head .grow{flex:1}
+  .q{font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .answer{display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;line-height:1.6;
+    white-space:pre-wrap;word-break:break-word}
+  .item.open .answer{display:block}
+  .answer b{color:var(--green)}
+  .answer em{display:block;font-style:normal;color:var(--sub);margin-top:5px}
+  .item.mastered{opacity:.72}
+  .item-actions{display:flex;gap:6px;margin-top:8px;justify-content:flex-end}
+  .mini{border:1px solid var(--line);background:var(--surface);color:var(--sub);font:inherit;font-size:11px;
+    padding:3px 9px;border-radius:7px;cursor:pointer}
+  .mini:hover{color:var(--text)}
+  .mini.on{color:var(--green);border-color:var(--green);background:var(--green-soft)}
+  .empty{font-size:12px;color:var(--sub);padding:10px 0}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>错题本</h1><p>把错的记下来，考前只看没掌握的</p></div>
+    <div class="left">未掌握 <b id="left">0</b> 题</div>
+  </div>
+  <div class="card">
+    <form id="form">
+      <input type="text" id="subject" maxlength="12" placeholder="科目，例如：数学" aria-label="科目">
+      <input type="text" id="topic" maxlength="40" placeholder="知识点（可选）" aria-label="知识点">
+      <textarea class="full" id="question" placeholder="题目内容" aria-label="题目" required></textarea>
+      <textarea id="answer" placeholder="正确答案" aria-label="正确答案"></textarea>
+      <textarea id="reason" placeholder="错因 / 提醒自己的话" aria-label="错因"></textarea>
+      <div class="row-end">
+        <span class="msg" id="msg" role="status"></span>
+        <button class="btn primary" type="submit">加入错题本</button>
+      </div>
+    </form>
+
+    <div class="filters" id="filters" role="group" aria-label="筛选"></div>
+    <div class="list" id="list"></div>
+    <div class="empty" id="empty">还没有错题，从今天做错的那一道开始。</div>
+  </div>
+  <div class="foot">数据保存在应用里，随笔记一起同步 · 点「看答案」再对照</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'mistakes';
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var items = [];
+  var filter = 'all';
+  var touched = false;
+  var BYTE_BUDGET = 100 * 1024;
+  function dataBytes(list) {
+    try { return new TextEncoder().encode(JSON.stringify(list)).length; }
+    catch (e) { return JSON.stringify(list).length * 2; }
+  }
+  var listEl = document.getElementById('list');
+  var emptyEl = document.getElementById('empty');
+  var filtersEl = document.getElementById('filters');
+  var msgEl = document.getElementById('msg');
+
+  function save() { set(KEY, items); }
+  function subjects() {
+    var seen = {};
+    items.forEach(function (i) { if (i.subject) seen[i.subject] = true; });
+    return Object.keys(seen);
+  }
+
+  function renderFilters() {
+    // 删掉某科最后一道题后，筛选别停在一个已经不存在的科目上
+    if (filter.indexOf('s:') === 0 && subjects().indexOf(filter.slice(2)) < 0) filter = 'all';
+    var defs = [{ key: 'all', label: '全部' }, { key: 'open', label: '未掌握' }, { key: 'done', label: '已掌握' }];
+    subjects().forEach(function (s) { defs.push({ key: 's:' + s, label: s }); });
+    filtersEl.textContent = '';
+    defs.forEach(function (def) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip' + (filter === def.key ? ' on' : '');
+      btn.textContent = def.label;
+      btn.setAttribute('aria-pressed', filter === def.key ? 'true' : 'false');
+      btn.addEventListener('click', function () {
+        filter = def.key;
+        render();
+      });
+      filtersEl.appendChild(btn);
+    });
+  }
+
+  function matched(item) {
+    if (filter === 'open') return !item.mastered;
+    if (filter === 'done') return item.mastered;
+    if (filter.indexOf('s:') === 0) return item.subject === filter.slice(2);
+    return true;
+  }
+
+  function render() {
+    renderFilters();
+    listEl.textContent = '';
+    var shown = items.filter(matched).slice().reverse();
+    shown.forEach(function (item) {
+      var box = document.createElement('div');
+      box.className = 'item' + (item.mastered ? ' mastered' : '');
+      var head = document.createElement('div');
+      head.className = 'item-head';
+      var subject = document.createElement('span');
+      subject.className = 'subject';
+      subject.textContent = (item.subject || '未分类') + (item.topic ? ' · ' + item.topic : '');
+      var grow = document.createElement('span');
+      grow.className = 'grow';
+      var del = document.createElement('button');
+      del.className = 'mini';
+      del.type = 'button';
+      del.textContent = '删除';
+      del.addEventListener('click', function () {
+        touched = true;
+        items = items.filter(function (x) { return x.id !== item.id; });
+        save(); render();
+      });
+      head.appendChild(subject); head.appendChild(grow); head.appendChild(del);
+
+      var q = document.createElement('div');
+      q.className = 'q';
+      q.textContent = item.question;
+      var answer = document.createElement('div');
+      answer.className = 'answer';
+      var ans = document.createElement('div');
+      ans.textContent = '答案：' + (item.answer || '还没写答案');
+      answer.appendChild(ans);
+      if (item.reason) {
+        var reason = document.createElement('em');
+        reason.textContent = '错因：' + item.reason;
+        answer.appendChild(reason);
+      }
+
+      var actions = document.createElement('div');
+      actions.className = 'item-actions';
+      var show = document.createElement('button');
+      show.className = 'mini';
+      show.type = 'button';
+      show.textContent = '看答案';
+      show.addEventListener('click', function () {
+        var open = box.classList.toggle('open');
+        show.textContent = open ? '收起答案' : '看答案';
+      });
+      var master = document.createElement('button');
+      master.className = 'mini' + (item.mastered ? ' on' : '');
+      master.type = 'button';
+      master.textContent = item.mastered ? '已掌握' : '标记掌握';
+      master.addEventListener('click', function () {
+        touched = true;
+        item.mastered = !item.mastered;
+        save(); render();
+      });
+      actions.appendChild(show); actions.appendChild(master);
+
+      box.appendChild(head); box.appendChild(q); box.appendChild(answer); box.appendChild(actions);
+      listEl.appendChild(box);
+    });
+
+    emptyEl.style.display = shown.length ? 'none' : 'block';
+    emptyEl.textContent = items.length ? '这个筛选下没有错题。' : '还没有错题，从今天做错的那一道开始。';
+    var left = items.filter(function (i) { return !i.mastered; }).length;
+    document.getElementById('left').textContent = String(left);
+    document.title = (left ? left + ' 题 · ' : '') + '错题本';
+  }
+
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var subjectEl = document.getElementById('subject');
+    var questionEl = document.getElementById('question');
+    var question = questionEl.value.trim();
+    if (!question) { msgEl.textContent = '题目内容不能为空'; questionEl.focus(); return; }
+    var entry = {
+      id: 'm' + Date.now().toString(36),
+      subject: subjectEl.value.trim() || '未分类',
+      topic: document.getElementById('topic').value.trim(),
+      question: question,
+      answer: document.getElementById('answer').value.trim(),
+      reason: document.getElementById('reason').value.trim(),
+      mastered: false,
+      created: new Date().toISOString()
+    };
+    if (items.length >= 2000 || dataBytes(items.concat([entry])) > BYTE_BUDGET) {
+      msgEl.textContent = '错题快到应用容量上限了，先删掉一些';
+      return;
+    }
+    msgEl.textContent = '';
+    touched = true;
+    items.push(entry);
+    ['subject', 'topic', 'question', 'answer', 'reason'].forEach(function (id) {
+      document.getElementById(id).value = '';
+    });
+    save(); render();
+    questionEl.focus();
+  });
+
+  get(KEY, []).then(function (saved) {
+    var loaded = Array.isArray(saved) ? saved.filter(function (x) { return x && x.question; }).map(function (x) {
+      return {
+        id: x.id || 'm' + Math.random().toString(36).slice(2),
+        subject: x.subject || '未分类',
+        topic: x.topic || '',
+        question: x.question,
+        answer: x.answer || '',
+        reason: x.reason || '',
+        mastered: Boolean(x.mastered),
+        created: x.created
+      };
+    }) : [];
+    if (touched) {
+      var seen = {};
+      items.forEach(function (x) { seen[x.id] = true; });
+      loaded.forEach(function (x) { if (!seen[x.id]) items.push(x); });
+      save();
+    } else {
+      items = loaded;
+    }
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

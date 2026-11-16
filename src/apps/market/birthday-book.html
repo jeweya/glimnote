@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>生日簿</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#7a5aa6;--accent-soft:#f1ebf7;--track:#efece4;--warn:#b4483c;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#b79be0;--accent-soft:#2e2430;--track:#2e2e2a;--warn:#e08a7d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:540px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .next{font-size:12px;color:var(--sub);white-space:nowrap}
+  .head .next b{color:var(--accent);font-variant-numeric:tabular-nums}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+  form.add{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  input{font:inherit;font-size:13px;color:var(--text);background:var(--bg);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;outline:none}
+  input:focus{border-color:var(--accent)}
+  form.add input[type=text]{flex:1 1 140px;min-width:110px}
+  .btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .msg{font-size:12px;color:var(--warn);min-height:16px;margin:-4px 0 6px}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  li{display:flex;align-items:center;gap:11px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  li.today{border-color:var(--accent);background:var(--accent-soft)}
+  .cake{width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:var(--accent-soft);display:grid;place-items:center;
+    font-size:16px}
+  li.today .cake{background:var(--surface)}
+  .info{flex:1;min-width:0}
+  .name{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{font-size:11px;color:var(--sub);margin-top:1px}
+  .days{flex:0 0 auto;text-align:right;font-size:12px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+  .days i{display:block;font-style:normal;font-size:10px;color:var(--sub);font-weight:400}
+  .del{border:0;background:transparent;color:var(--sub);font-size:16px;line-height:1;cursor:pointer;opacity:0;padding:0 2px}
+  li:hover .del,li:focus-within .del{opacity:1}
+  @media (hover:none){.del{opacity:1}}
+  .empty{font-size:12px;color:var(--sub);padding:8px 0}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>生日簿</h1><p>家人朋友的生日，提前看见</p></div>
+    <div class="next">最近 <b id="nextDays">—</b></div>
+  </div>
+  <div class="card">
+    <form class="add" id="form">
+      <input type="text" id="name" maxlength="24" placeholder="名字" aria-label="名字">
+      <input type="date" id="date" aria-label="生日">
+      <button class="btn primary" type="submit">加入</button>
+    </form>
+    <div class="msg" id="msg" role="status"></div>
+    <ul id="list"></ul>
+    <div class="empty" id="empty">还没有记录，先加一位吧。</div>
+  </div>
+  <div class="foot">生日保存在应用里，随笔记同步 · 今天生日的会排在最上面</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'birthdays';
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var items = [];
+  var listEl = document.getElementById('list');
+  var emptyEl = document.getElementById('empty');
+  var msgEl = document.getElementById('msg');
+  var nextEl = document.getElementById('nextDays');
+
+  function todayStart() {
+    var d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function parseBirthday(s) {
+    var p = String(s || '').split('-');
+    if (p.length !== 3) return null;
+    return { y: Number(p[0]), m: Number(p[1]), d: Number(p[2]) };
+  }
+  function birthdayIn(year, b) {
+    // 2 月 29 日在平年按 2 月 28 日过，避免 new Date 自动滚到 3 月
+    var last = new Date(year, b.m, 0).getDate();
+    return new Date(year, b.m - 1, Math.min(b.d, last));
+  }
+  /** 下一次生日：今年没过就是今年，过了就明年 */
+  function nextBirthday(b, now) {
+    var t = birthdayIn(now.getFullYear(), b);
+    if (t.getTime() < now.getTime()) t = birthdayIn(now.getFullYear() + 1, b);
+    return t;
+  }
+  function dateText(b) {
+    var leap = b.m === 2 && b.d === 29;
+    return b.m + ' 月 ' + b.d + ' 日' + (leap ? '（平年按 2 月 28 日）' : '');
+  }
+  function daysBetween(a, b) {
+    return Math.round((b.getTime() - a.getTime()) / 86400000);
+  }
+  function save() { set(KEY, items); }
+  var touched = false;
+
+  function render() {
+    var now = todayStart();
+    var rows = items.map(function (item) {
+      var b = parseBirthday(item.date);
+      if (!b) return null;
+      var next = nextBirthday(b, now);
+      return { item: item, b: b, next: next, days: daysBetween(now, next) };
+    }).filter(Boolean).sort(function (a, b) { return a.days - b.days; });
+
+    listEl.textContent = '';
+    rows.forEach(function (row) {
+      var li = document.createElement('li');
+      if (row.days === 0) li.className = 'today';
+
+      var cake = document.createElement('div');
+      cake.className = 'cake';
+      cake.textContent = row.days === 0 ? '🎂' : '🎈';
+      cake.setAttribute('aria-hidden', 'true');
+
+      var info = document.createElement('div');
+      info.className = 'info';
+      var name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = row.item.name;
+      var meta = document.createElement('div');
+      meta.className = 'meta';
+      var years = row.next.getFullYear() - row.b.y;
+      var age = row.b.y > 1900 && years >= 0 ? ' · ' + years + ' 岁' : '';
+      meta.textContent = dateText(row.b) + age;
+      info.appendChild(name); info.appendChild(meta);
+
+      var days = document.createElement('div');
+      days.className = 'days';
+      days.textContent = row.days === 0 ? '今天' : row.days + ' 天';
+      var hint = document.createElement('i');
+      hint.textContent = row.days === 0 ? '生日快乐' : row.days <= 7 ? '快到了' : '还有';
+      days.appendChild(hint);
+
+      var del = document.createElement('button');
+      del.className = 'del';
+      del.type = 'button';
+      del.textContent = '×';
+      del.title = '删除';
+      del.addEventListener('click', function () {
+        touched = true;
+        items = items.filter(function (x) { return x.id !== row.item.id; });
+        save(); render();
+      });
+
+      li.appendChild(cake); li.appendChild(info); li.appendChild(days); li.appendChild(del);
+      listEl.appendChild(li);
+    });
+
+    emptyEl.style.display = items.length ? 'none' : 'block';
+    nextEl.textContent = rows.length ? (rows[0].days === 0 ? '今天' : rows[0].days + ' 天') : '—';
+    document.title = (rows.length && rows[0].days === 0 ? '今天生日 · ' : '') + '生日簿';
+  }
+
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var nameEl = document.getElementById('name');
+    var dateEl = document.getElementById('date');
+    var name = nameEl.value.trim();
+    var date = dateEl.value;
+    if (!name) { msgEl.textContent = '先写一下名字'; nameEl.focus(); return; }
+    if (!date) { msgEl.textContent = '选一下生日日期'; dateEl.focus(); return; }
+    var todayKey = todayStart();
+    var picked = parseBirthday(date);
+    if (!picked || !picked.m || !picked.d) { msgEl.textContent = '日期格式不对'; return; }
+    if (new Date(picked.y, picked.m - 1, picked.d) > todayKey) {
+      msgEl.textContent = '生日不能选未来的日期';
+      dateEl.focus();
+      return;
+    }
+    msgEl.textContent = '';
+    touched = true;
+    items.push({ id: 'b' + Date.now().toString(36), name: name, date: date });
+    nameEl.value = ''; dateEl.value = '';
+    save(); render();
+    nameEl.focus();
+  });
+
+  get(KEY, []).then(function (saved) {
+    var loaded = Array.isArray(saved) ? saved.filter(function (x) { return x && x.name && x.date; }) : [];
+    if (touched) {
+      var seen = {};
+      items.forEach(function (x) { seen[x.id] = true; });
+      loaded.forEach(function (x) { if (!seen[x.id]) items.push(x); });
+      save();
+    } else {
+      items = loaded;
+    }
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

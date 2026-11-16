@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>记账本</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --amber:#b07f2a;
+    --dim:#ede9e0;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--amber:#d6a75a;--dim:#33322e;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:600px;display:flex;flex-direction:column;gap:12px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .sub{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+  .month{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+  .month b{font-size:13px}
+  .month button{border:1px solid var(--line);background:var(--bg);color:var(--sub);border-radius:8px;
+    width:26px;height:26px;cursor:pointer;line-height:0;display:grid;place-items:center}
+  .month button:hover{color:var(--text);border-color:var(--accent)}
+  .sum{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+  .sum .big{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  .sum .unit{font-size:12px;color:var(--sub)}
+  .bars{display:flex;flex-direction:column;gap:6px}
+  .bar{display:grid;grid-template-columns:52px 1fr 64px;align-items:center;gap:8px;font-size:11px;color:var(--sub)}
+  .bar i{display:block;height:6px;border-radius:3px;background:var(--accent);opacity:.65;min-width:2px}
+  .bar .track{background:var(--dim);border-radius:3px;height:6px;overflow:hidden}
+  .bar .amt{text-align:right;font-variant-numeric:tabular-nums}
+  .add{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .add input,.add select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);
+    border-radius:9px;padding:8px 10px;min-width:0;width:100%}
+  .add input:focus-visible,.add select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .add .wide{grid-column:1 / -1}
+  .add button{grid-column:1 / -1;font:inherit;border:1px solid var(--accent);background:var(--accent);
+    color:#fff;border-radius:10px;padding:9px;cursor:pointer;font-weight:600}
+  .add button:hover{filter:brightness(1.06)}
+  .rows{display:flex;flex-direction:column}
+  .row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px}
+  .row:last-child{border-bottom:0}
+  .row .cat{font-size:11px;color:var(--sub);min-width:44px}
+  .row .note{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .note em{font-style:normal;color:var(--sub);font-size:11px;margin-left:6px}
+  .row .amt{font-variant-numeric:tabular-nums;font-weight:600}
+  .row .del{border:0;background:transparent;color:var(--sub);cursor:pointer;padding:3px;border-radius:6px;line-height:0}
+  .row .del:hover{background:var(--bg);color:var(--warn)}
+  .empty{color:var(--sub);font-size:12px;text-align:center;padding:16px 0}
+  .msg{font-size:12px;color:var(--warn);min-height:16px}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>记账本</h1>
+    <p class="sub">随手记一笔，月底自动汇总；只记支出</p>
+  </div>
+
+  <div class="card">
+    <div class="month">
+      <button type="button" id="prev" aria-label="上个月">‹</button>
+      <b id="monthLabel"></b>
+      <button type="button" id="next" aria-label="下个月">›</button>
+    </div>
+    <div class="sum"><span class="big" id="total">0.00</span><span class="unit">元 · <span id="count">0</span> 笔</span></div>
+    <div class="bars" id="bars"></div>
+  </div>
+
+  <form class="add" id="form">
+    <input id="amount" class="wide" inputmode="decimal" placeholder="金额，例如 23.5" aria-label="金额">
+    <select id="cat" aria-label="分类">
+      <option>餐饮</option><option>交通</option><option>购物</option><option>居家</option>
+      <option>娱乐</option><option>医疗</option><option>学习</option><option>其它</option>
+    </select>
+    <input id="date" type="date" aria-label="日期">
+    <input id="note" class="wide" maxlength="30" placeholder="备注（可不填）" aria-label="备注">
+    <button type="submit">记一笔</button>
+  </form>
+  <div class="msg" id="msg" role="status"></div>
+
+  <div class="card">
+    <div class="rows" id="rows"></div>
+  </div>
+  <div class="foot">数据保存在仓库里，随同步上云；删除后在别的设备上也会消失</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'records';
+  var mem = [];
+  var bridge = window.glimnote && window.glimnote.data;
+  var cursor = new Date();
+
+  function load() {
+    if (!bridge) return Promise.resolve(mem);
+    return bridge.get(KEY, []).then(function (v) { return Array.isArray(v) ? v : []; })
+      .catch(function () { return mem; });
+  }
+  function save() {
+    if (!bridge) return Promise.resolve();
+    return bridge.set(KEY, mem).catch(function () {});
+  }
+
+  var touched = false;
+  var el = {
+    total: document.getElementById('total'),
+    count: document.getElementById('count'),
+    bars: document.getElementById('bars'),
+    rows: document.getElementById('rows'),
+    monthLabel: document.getElementById('monthLabel'),
+    form: document.getElementById('form'),
+    amount: document.getElementById('amount'),
+    cat: document.getElementById('cat'),
+    date: document.getElementById('date'),
+    note: document.getElementById('note'),
+    msg: document.getElementById('msg')
+  };
+
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  el.date.value = ymd(new Date());
+
+  function monthKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+  function cents(n) { return Math.round(Number(n) * 100); }
+  function money(c) { return (c / 100).toFixed(2); }
+
+  // 宿主单个值上限 128KB，这里留出余量按字节估算
+  var BYTE_BUDGET = 100 * 1024;
+  function dataBytes(list) {
+    try { return new TextEncoder().encode(JSON.stringify(list)).length; }
+    catch (e) { return JSON.stringify(list).length * 2; }
+  }
+
+  function inMonth() {
+    var k = monthKey(cursor);
+    return mem.filter(function (r) { return String(r.date).slice(0, 7) === k; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  }
+
+  function render() {
+    el.monthLabel.textContent = cursor.getFullYear() + ' 年 ' + (cursor.getMonth() + 1) + ' 月';
+    var rows = inMonth();
+    var total = rows.reduce(function (s, r) { return s + cents(r.amount); }, 0);
+    el.total.textContent = money(total);
+    el.count.textContent = String(rows.length);
+
+    var byCat = {};
+    rows.forEach(function (r) {
+      byCat[r.cat] = (byCat[r.cat] || 0) + cents(r.amount);
+    });
+    var cats = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
+    el.bars.textContent = '';
+    if (!cats.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '这个月还没有记录';
+      el.bars.appendChild(empty);
+    }
+    cats.forEach(function (cat) {
+      var row = document.createElement('div');
+      row.className = 'bar';
+      var name = document.createElement('span');
+      name.textContent = cat;
+      var track = document.createElement('span');
+      track.className = 'track';
+      var fill = document.createElement('i');
+      fill.style.width = Math.max(2, Math.round(byCat[cat] / (total || 1) * 100)) + '%';
+      track.appendChild(fill);
+      var amt = document.createElement('span');
+      amt.className = 'amt';
+      amt.textContent = money(byCat[cat]);
+      row.appendChild(name);
+      row.appendChild(track);
+      row.appendChild(amt);
+      el.bars.appendChild(row);
+    });
+
+    el.rows.textContent = '';
+    if (!rows.length) {
+      var none = document.createElement('div');
+      none.className = 'empty';
+      none.textContent = '还没有记录，上面记一笔吧';
+      el.rows.appendChild(none);
+      return;
+    }
+    rows.forEach(function (r) {
+      var row = document.createElement('div');
+      row.className = 'row';
+      var cat = document.createElement('span');
+      cat.className = 'cat';
+      cat.textContent = r.cat;
+      var note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = r.note || '—';
+      var day = document.createElement('em');
+      day.textContent = String(r.date).slice(5).replace('-', '/');
+      note.appendChild(day);
+      var amt = document.createElement('span');
+      amt.className = 'amt';
+      amt.textContent = money(cents(r.amount));
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del';
+      del.title = '删除这笔';
+      del.setAttribute('aria-label', '删除 ' + r.cat + ' ' + money(cents(r.amount)) + ' 元');
+      del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+      del.addEventListener('click', function () {
+        touched = true;
+        mem = mem.filter(function (x) { return x.id !== r.id; });
+        save().then(render);
+      });
+      row.appendChild(cat);
+      row.appendChild(note);
+      row.appendChild(amt);
+      row.appendChild(del);
+      el.rows.appendChild(row);
+    });
+  }
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var raw = String(el.amount.value).replace(/[,，\s]/g, '');
+    if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) {
+      el.msg.textContent = '金额最多到分，写成 23.50 这样';
+      el.amount.focus();
+      return;
+    }
+    var value = Number(raw);
+    if (!isFinite(value) || value <= 0) {
+      el.msg.textContent = '金额要大于 0';
+      el.amount.focus();
+      return;
+    }
+    if (Math.round(value * 100) < 1) {
+      el.msg.textContent = '金额至少 0.01 元';
+      el.amount.focus();
+      return;
+    }
+    if (value > 10000000) {
+      el.msg.textContent = '这个金额太大了，检查一下';
+      return;
+    }
+    var date = el.date.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      el.msg.textContent = '日期不对，重新选一个';
+      return;
+    }
+    var entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      date: date,
+      amount: Math.round(value * 100) / 100,
+      cat: el.cat.value,
+      note: el.note.value.trim().slice(0, 30)
+    };
+    if (mem.length >= 2000 || dataBytes(mem.concat([entry])) > BYTE_BUDGET) {
+      el.msg.textContent = '记录快到应用容量上限了，先删掉一些旧的';
+      return;
+    }
+    el.msg.textContent = '';
+    touched = true;
+    mem.push(entry);
+    el.amount.value = '';
+    el.note.value = '';
+    cursor = new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, 1);
+    save().then(render);
+    el.amount.focus();
+  });
+
+  document.getElementById('prev').addEventListener('click', function () {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+    render();
+  });
+  document.getElementById('next').addEventListener('click', function () {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    render();
+  });
+
+  load().then(function (list) {
+    var loaded = list.filter(function (r) { return r && r.date && isFinite(Number(r.amount)); });
+    if (touched) {
+      var seen = {};
+      mem.forEach(function (r) { seen[r.id] = true; });
+      loaded.forEach(function (r) { if (!seen[r.id]) mem.push(r); });
+      save();
+    } else {
+      mem = loaded;
+    }
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

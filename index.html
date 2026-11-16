@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#FBFBF9" />
+    <meta
+      name="description"
+      content="萤光笔记 Glimnote —— 萤火微光，记录细碎微小的灵感。本地优先的 Markdown 笔记，自动同步到你自己 GitHub / Gitee / GitCode 私有仓库。"
+    />
+    <title>萤光笔记 Glimnote · 萤火微光，记录细碎微小的灵感</title>
+    <style>
+      /* 启动兜底页：样式全部内联，主 CSS / JS 没加载成功时也能正常显示 */
+      #boot-error[hidden] {
+        display: none;
+      }
+      #boot-error {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #fbfbf9;
+        color: #2a2a28;
+        font-family:
+          'Segoe UI',
+          'Microsoft YaHei',
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      #boot-error .boot-card {
+        width: 100%;
+        max-width: 420px;
+        padding: 28px;
+        border: 1px solid #e6e3dc;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+      #boot-error .boot-mark {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 14px;
+        border-radius: 12px;
+        background: #f2b544;
+        color: #fff;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 44px;
+      }
+      #boot-error h1 {
+        margin: 0 0 10px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      #boot-error p {
+        margin: 0 0 10px;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #6b6a65;
+      }
+      #boot-error .boot-detail {
+        margin: 12px 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #f6f4ef;
+        color: #8a6a3a;
+        font-size: 11px;
+        line-height: 1.5;
+        word-break: break-all;
+      }
+      #boot-error .boot-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        margin-top: 16px;
+        flex-wrap: wrap;
+      }
+      #boot-error button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid #dcd8cf;
+        border-radius: 9px;
+        background: #fff;
+        color: #2a2a28;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #boot-error button:hover {
+        background: #f7f5f0;
+      }
+      #boot-error button.primary {
+        border-color: #f2b544;
+        background: #f2b544;
+        color: #fff;
+      }
+      #boot-error button.primary:hover {
+        background: #e9a92f;
+      }
+      #boot-error .boot-hint {
+        margin: 12px 0 0;
+        font-size: 11px;
+        color: #9a988f;
+      }
+      /* 重置之前先确认：崩溃页上的按钮也不能一点就清配置 */
+      #boot-error .boot-confirm[hidden] {
+        display: none;
+      }
+      #boot-error .boot-confirm {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(24, 22, 18, 0.42);
+      }
+      #boot-error .boot-confirm-card {
+        width: 100%;
+        max-width: 370px;
+        padding: 22px;
+        border: 1px solid #e6e3dc;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+        text-align: center;
+      }
+      #boot-error .boot-confirm-card h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #boot-error .boot-confirm-card p {
+        margin: 0 0 4px;
+        text-align: left;
+      }
+      #boot-error .boot-confirm-card .boot-confirm-error {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(180, 72, 60, 0.09);
+        color: #b4483c;
+        font-size: 12px;
+      }
+      #boot-error .boot-confirm-card .boot-actions {
+        justify-content: flex-end;
+        margin-top: 18px;
+      }
+      #boot-error button[disabled] {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #boot-error button.danger {
+        border-color: rgba(180, 72, 60, 0.42);
+        background: transparent;
+        color: #b4483c;
+      }
+      #boot-error button.danger:hover:not([disabled]) {
+        background: rgba(180, 72, 60, 0.09);
+      }
+      @media (prefers-color-scheme: dark) {
+        #boot-error {
+          background: #1c1c1a;
+          color: #e8e6e0;
+        }
+        #boot-error .boot-card {
+          background: #262624;
+          border-color: #3a3936;
+        }
+        #boot-error p {
+          color: #a8a69f;
+        }
+        #boot-error .boot-detail {
+          background: #30302d;
+          color: #d8b878;
+        }
+        #boot-error button {
+          background: #2f2f2c;
+          border-color: #45443f;
+          color: #e8e6e0;
+        }
+        #boot-error button:hover {
+          background: #3a3936;
+        }
+        #boot-error .boot-hint {
+          color: #85837c;
+        }
+        #boot-error .boot-confirm-card {
+          background: #262624;
+          border-color: #3a3936;
+        }
+        #boot-error .boot-confirm-card .boot-confirm-error {
+          background: rgba(217, 106, 94, 0.14);
+          color: #e5948a;
+        }
+        #boot-error button.danger {
+          border-color: rgba(229, 148, 138, 0.42);
+          background: transparent;
+          color: #e5948a;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- 启动兜底：JS 报错或脚本根本没加载时，不要让用户对着白屏 -->
+    <div id="boot-error" hidden>
+      <div class="boot-card">
+        <div class="boot-mark">萤</div>
+        <h1>界面没有正常启动</h1>
+        <p>
+          笔记都保存在「文档/glimnote」的普通 Markdown
+          文件里，没有丢失。可以先重新加载；如果反复出现，重置应用通常能恢复。
+        </p>
+        <div class="boot-detail" id="boot-error-detail"></div>
+        <div class="boot-actions">
+          <button class="primary" onclick="location.reload()">重新加载</button>
+          <button id="boot-reset" onclick="window.__bootResetAsk && window.__bootResetAsk()">重置应用</button>
+          <button onclick="if (window.glimnote && window.glimnote.openLogFolder) window.glimnote.openLogFolder();">
+            打开日志目录
+          </button>
+        </div>
+        <p class="boot-hint">重置只清空同步连接、密码与偏好，不会删除笔记；重置后重新连接 Git 仓库即可。</p>
+      </div>
+
+      <div class="boot-confirm" id="boot-confirm" hidden>
+        <div
+          class="boot-confirm-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="boot-confirm-title"
+          aria-describedby="boot-confirm-desc"
+        >
+          <h2 id="boot-confirm-title">确定要重置应用吗？</h2>
+          <p id="boot-confirm-desc">
+            会清空本机的同步连接、密码与偏好设置，然后重启应用。笔记文件不会被删除，但这一步无法撤销，重置后需要重新连接
+            Git 仓库。
+          </p>
+          <p class="boot-confirm-error" id="boot-confirm-error" hidden></p>
+          <div class="boot-actions">
+            <button id="boot-confirm-cancel" type="button">取消</button>
+            <button class="danger" id="boot-confirm-ok" type="button">确认重置并重启</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var shown = false;
+        function rootEmpty() {
+          var root = document.getElementById('root');
+          return !root || root.childElementCount === 0;
+        }
+        function show(reason) {
+          if (shown || !rootEmpty()) return;
+          shown = true;
+          var box = document.getElementById('boot-error');
+          var detail = document.getElementById('boot-error-detail');
+          if (detail) detail.textContent = reason ? String(reason).slice(0, 300) : '';
+          if (detail && !detail.textContent) detail.hidden = true;
+          if (box) box.hidden = false;
+        }
+        // 模块脚本解析失败 / 执行时报错：浏览器会派发 error
+        window.addEventListener('error', function (e) {
+          if (!rootEmpty()) return;
+          show(e && e.message ? e.message : '启动脚本出错');
+        });
+        // 未处理的 Promise 拒绝不一定是致命错误，只在界面仍为空时才提示
+        window.addEventListener('unhandledrejection', function (e) {
+          if (!rootEmpty()) return;
+          var reason = e && e.reason ? e.reason.message || e.reason : '';
+          show(reason || '启动过程未完成');
+        });
+        // 兜底计时：脚本被浏览器拦住、什么错都没报时也要给出口
+        setTimeout(function () {
+          if (rootEmpty()) show('界面在 8 秒内没有渲染出来');
+        }, 8000);
+
+        // ---- 重置确认 ----
+        var confirmBox = document.getElementById('boot-confirm');
+        var confirmOk = document.getElementById('boot-confirm-ok');
+        var confirmCancel = document.getElementById('boot-confirm-cancel');
+        var confirmError = document.getElementById('boot-confirm-error');
+        var lastFocus = null;
+
+        function closeReset() {
+          if (!confirmBox || confirmBox.hidden) return;
+          confirmBox.hidden = true;
+          if (lastFocus && lastFocus.focus) lastFocus.focus();
+        }
+
+        function failReset(message) {
+          if (confirmOk) {
+            confirmOk.disabled = false;
+            confirmOk.textContent = '确认重置并重启';
+          }
+          if (confirmCancel) confirmCancel.disabled = false;
+          if (confirmError) {
+            confirmError.textContent = message;
+            confirmError.hidden = false;
+          }
+        }
+
+        function doReset() {
+          if (confirmOk) {
+            confirmOk.disabled = true;
+            confirmOk.textContent = '正在重置…';
+          }
+          if (confirmCancel) confirmCancel.disabled = true;
+          if (confirmError) confirmError.hidden = true;
+          if (window.glimnote && window.glimnote.resetApp) {
+            var pending = window.glimnote.resetApp('boot');
+            // 主进程写不进重置标记时会返回 false，别让按钮一直停在「正在重置…」
+            if (pending && typeof pending.then === 'function') {
+              pending.then(
+                function (ok) {
+                  if (ok === false) failReset('没能写入重置标记，可以打开日志目录查看原因，或先重新加载再试。');
+                },
+                function () {
+                  failReset('重置失败，可以打开日志目录查看原因，或先重新加载再试。');
+                },
+              );
+            }
+            return;
+          }
+          // 网页版：只清界面设置，不动 IndexedDB 里的笔记
+          try {
+            var keys = [];
+            for (var i = 0; i < localStorage.length; i++) {
+              var key = localStorage.key(i);
+              if (key && key.indexOf('glimnote.') === 0) keys.push(key);
+            }
+            for (var j = 0; j < keys.length; j++) localStorage.removeItem(keys[j]);
+          } catch (e) {
+            /* 隐私模式下不可写，直接重载 */
+          }
+          location.reload();
+        }
+
+        window.__bootResetAsk = function () {
+          if (!confirmBox) return;
+          lastFocus = document.activeElement;
+          if (confirmError) {
+            confirmError.hidden = true;
+            confirmError.textContent = '';
+          }
+          if (confirmOk) {
+            confirmOk.disabled = false;
+            confirmOk.textContent = '确认重置并重启';
+          }
+          if (confirmCancel) confirmCancel.disabled = false;
+          confirmBox.hidden = false;
+          if (confirmCancel) confirmCancel.focus();
+        };
+
+        if (confirmCancel) confirmCancel.addEventListener('click', closeReset);
+        if (confirmOk) confirmOk.addEventListener('click', doReset);
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' || e.keyCode === 27) closeReset();
+        });
+      })();
+    </script>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

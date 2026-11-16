@@ -1,0 +1,65 @@
+import {
+  BookOpen,
+  Braces,
+  Briefcase,
+  Calculator,
+  CalendarDays,
+  Clock3,
+  Code2,
+  Database,
+  FileText,
+  FlaskConical,
+  Folder,
+  Globe,
+  Heart,
+  House,
+  Image as ImageIcon,
+  LayoutGrid,
+  Lightbulb,
+  Link2,
+  Monitor,
+  Music,
+  Palette,
+  PenLine,
+  Sparkles,
+  Star,
+  Terminal,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
+
+/** 首页入口可选图标；名字写进 JSON，换版本时只增不减 */
+export const HOME_ICONS: Record<string, LucideIcon> = {
+  star: Star,
+  briefcase: Briefcase,
+  book: BookOpen,
+  wrench: Wrench,
+  globe: Globe,
+  calculator: Calculator,
+  braces: Braces,
+  lightbulb: Lightbulb,
+  folder: Folder,
+  file: FileText,
+  link: Link2,
+  grid: LayoutGrid,
+  sparkles: Sparkles,
+  code: Code2,
+  clock: Clock3,
+  calendar: CalendarDays,
+  palette: Palette,
+  flask: FlaskConical,
+  music: Music,
+  heart: Heart,
+  house: House,
+  terminal: Terminal,
+  database: Database,
+  image: ImageIcon,
+  pen: PenLine,
+  monitor: Monitor,
+};
+
+export const HOME_ICON_OPTIONS = Object.keys(HOME_ICONS);
+
+export function iconFor(name: string | undefined, fallback = 'star'): LucideIcon {
+  return HOME_ICONS[name || ''] || HOME_ICONS[fallback] || Star;
+}

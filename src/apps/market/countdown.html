@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>倒数日</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --amber:#b07f2a;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--amber:#d6a75a;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:560px;display:flex;flex-direction:column;gap:12px}
+  .head h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .hero{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+    padding:18px 16px;text-align:center;display:flex;flex-direction:column;gap:4px}
+  .hero .name{font-size:14px;color:var(--sub)}
+  .hero .num{font-size:52px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--accent)}
+  .hero .unit{font-size:13px;color:var(--sub)}
+  .hero .date{font-size:12px;color:var(--sub);margin-top:4px}
+  .add{display:flex;gap:6px;flex-wrap:wrap}
+  .add input{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);
+    border-radius:10px;padding:8px 10px;min-width:0;flex:1 1 120px}
+  .add input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .add .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--sub);flex:none;padding:0 2px;white-space:nowrap;cursor:pointer}
+  .add .chk input{accent-color:var(--accent);width:15px;height:15px;flex:none}
+  .add button{font:inherit;border:1px solid var(--accent);background:var(--accent);color:#fff;
+    border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:600;white-space:nowrap}
+  .add button:hover{filter:brightness(1.06)}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;padding:10px 12px}
+  .item .dot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:none}
+  .item.pinned .dot{background:var(--accent)}
+  .item .body{flex:1;min-width:0}
+  .item .t{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .d{font-size:11px;color:var(--sub)}
+  .item .n{font-size:13px;font-variant-numeric:tabular-nums;color:var(--accent);white-space:nowrap}
+  .item .n.past{color:var(--sub)}
+  .item .ops{display:flex;gap:2px;flex:none}
+  .icon{border:0;background:transparent;color:var(--sub);cursor:pointer;padding:4px 5px;border-radius:6px;line-height:0}
+  .icon:hover{background:var(--bg);color:var(--text)}
+  .icon.on{color:var(--accent)}
+  .empty{border:1px dashed var(--line);border-radius:12px;padding:22px 14px;text-align:center;color:var(--sub);font-size:12px}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+  .msg{font-size:12px;color:var(--warn);min-height:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>倒数日</h1>
+    <p>生日、纪念日、截止日，一眼看到还有几天</p>
+  </div>
+
+  <div class="hero" id="hero" hidden>
+    <div class="name" id="heroName"></div>
+    <div class="num" id="heroNum"></div>
+    <div class="unit" id="heroUnit"></div>
+    <div class="date" id="heroDate"></div>
+  </div>
+
+  <form class="add" id="form">
+    <input id="title" maxlength="20" placeholder="要记的日子，例如 妈妈的生日" aria-label="名称">
+    <input id="date" type="date" aria-label="日期">
+    <label class="chk"><input type="checkbox" id="annual"> 每年重复</label>
+    <button type="submit">添加</button>
+  </form>
+  <div class="msg" id="msg" role="status"></div>
+
+  <div class="list" id="list"></div>
+  <div class="foot">置顶的日子显示在上方 · 数据保存在仓库里，随同步上云</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'events';
+  var mem = [];
+  var ready = false;
+  var dirty = false;
+  var bridge = window.glimnote && window.glimnote.data;
+
+  function load() {
+    if (!bridge) return Promise.resolve(mem);
+    return bridge.get(KEY, []).then(function (v) { return Array.isArray(v) ? v : []; })
+      .catch(function () { return mem; });
+  }
+  function save() {
+    if (!bridge) return Promise.resolve();
+    return bridge.set(KEY, mem).catch(function () {});
+  }
+
+  var el = {
+    hero: document.getElementById('hero'),
+    heroName: document.getElementById('heroName'),
+    heroNum: document.getElementById('heroNum'),
+    heroUnit: document.getElementById('heroUnit'),
+    heroDate: document.getElementById('heroDate'),
+    list: document.getElementById('list'),
+    form: document.getElementById('form'),
+    title: document.getElementById('title'),
+    date: document.getElementById('date'),
+    annual: document.getElementById('annual'),
+    msg: document.getElementById('msg')
+  };
+
+  var today = new Date();
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  el.date.value = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  function parseDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    if (!m) return null;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function daysBetween(s) {
+    var d = parseDate(s);
+    if (!d) return 0;
+    return Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+  }
+  function annualDate(d) {
+    var now = new Date();
+    function occurrence(year) {
+      var month = d.getMonth();
+      var day = d.getDate();
+      var last = new Date(year, month + 1, 0).getDate();
+      if (day > last) day = last;
+      return new Date(year, month, day);
+    }
+    var target = occurrence(now.getFullYear());
+    if (startOfDay(target) < startOfDay(now)) target = occurrence(now.getFullYear() + 1);
+    return target;
+  }
+  function daysTo(item) {
+    if (item && item.annual) {
+      var d = parseDate(item.date);
+      return d ? Math.round((startOfDay(annualDate(d)) - startOfDay(new Date())) / 86400000) : 0;
+    }
+    return daysBetween(item && item.date);
+  }
+  function dateLabel(item) {
+    var s = typeof item === 'string' ? item : item && item.date;
+    var d = parseDate(s);
+    if (!d) return s;
+    if (item && item.annual) {
+      var leap = d.getMonth() === 1 && d.getDate() === 29;
+      return '每年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日' + (leap ? '（平年按 2 月 28 日）' : '');
+    }
+    var week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+    return d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 · ' + week;
+  }
+
+  function sorted() {
+    return mem.slice().sort(function (a, b) {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      var da = Math.abs(daysTo(a)), db = Math.abs(daysTo(b));
+      return da - db;
+    });
+  }
+
+  function icon(path, label, on) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'icon' + (on ? ' on' : '');
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+    return b;
+  }
+
+  function render() {
+    var rows = sorted();
+    el.hero.hidden = !rows.length;
+    if (rows.length) {
+      var first = rows[0];
+      var diff = daysTo(first);
+      el.heroName.textContent = first.title;
+      el.heroNum.textContent = String(Math.abs(diff));
+      el.heroUnit.textContent = diff === 0 ? '就是今天' : diff > 0 ? '天后' : '天前';
+      el.heroNum.style.color = diff < 0 ? 'var(--sub)' : 'var(--accent)';
+      el.heroDate.textContent = dateLabel(first);
+    }
+
+    el.list.textContent = '';
+    if (!rows.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '还没有日子，从上面添加一个吧';
+      el.list.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (item) {
+      var diff = daysTo(item);
+      var row = document.createElement('div');
+      row.className = 'item' + (item.pinned ? ' pinned' : '');
+
+      var dot = document.createElement('span');
+      dot.className = 'dot';
+
+      var body = document.createElement('div');
+      body.className = 'body';
+      var t = document.createElement('div');
+      t.className = 't';
+      t.textContent = item.title;
+      var d = document.createElement('div');
+      d.className = 'd';
+      d.textContent = dateLabel(item);
+      body.appendChild(t);
+      body.appendChild(d);
+
+      var n = document.createElement('div');
+      n.className = 'n' + (diff < 0 ? ' past' : '');
+      n.textContent = diff === 0 ? '今天' : diff > 0 ? '还有 ' + diff + ' 天' : diff + ' 天';
+
+      var ops = document.createElement('div');
+      ops.className = 'ops';
+      var pin = icon('<path d="M12 17v5"/><path d="M9 10.8V4h6v6.8l2.5 3.2H6.5z"/>', item.pinned ? '取消置顶' : '置顶', item.pinned);
+      pin.addEventListener('click', function () {
+        item.pinned = !item.pinned;
+        dirty = true;
+        save().then(render);
+      });
+      var del = icon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>', '删除', false);
+      del.addEventListener('click', function () {
+        mem = mem.filter(function (x) { return x.id !== item.id; });
+        dirty = true;
+        save().then(render);
+      });
+      ops.appendChild(pin);
+      ops.appendChild(del);
+
+      row.appendChild(dot);
+      row.appendChild(body);
+      row.appendChild(n);
+      row.appendChild(ops);
+      el.list.appendChild(row);
+    });
+  }
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var title = el.title.value.trim();
+    var date = el.date.value;
+    if (!title) {
+      el.msg.textContent = '先写一个名字吧';
+      el.title.focus();
+      return;
+    }
+    if (!parseDate(date)) {
+      el.msg.textContent = '日期格式不对，重新选一个';
+      el.date.focus();
+      return;
+    }
+    if (mem.length >= 100) {
+      el.msg.textContent = '最多记 100 个日子，先删掉一些';
+      return;
+    }
+    el.msg.textContent = '';
+    mem.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: title,
+      date: date,
+      pinned: false,
+      annual: !!el.annual.checked
+    });
+    el.title.value = '';
+    el.annual.checked = false;
+    dirty = true;
+    save().then(render);
+  });
+
+  load().then(function (list) {
+    ready = true;
+    if (dirty) {
+      save().then(render);
+      return;
+    }
+    mem = list;
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

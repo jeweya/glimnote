@@ -1,0 +1,172 @@
+:root {
+  /* 让浏览器自绘的控件（原生 select 弹层、滚动条、日期选择器）跟着应用主题走，
+     否则系统是深色模式时，浅色界面里会弹出黑底列表 */
+  color-scheme: light;
+  /* ---------- 纸：三层暖白 + 两种填充 ---------- */
+  --canvas: #f1eee7;
+  --surface-list: #f8f6f1;
+  --surface-page: #fffefc;
+  --surface: #ffffff;
+  --surface-2: #eeeae2;
+  --surface-3: #e6e1d7;
+
+  /* ---------- 墨：三档 ---------- */
+  --text-1: #1a1916;
+  --text-2: #514d46;
+  --text-3: #69645b;
+
+  /* ---------- 线 ---------- */
+  --line: #e4dfd4;
+  --line-strong: #cfc8bb;
+
+  /* ---------- 行动 ---------- */
+  --accent: #2f6b58;
+  --accent-hover: #275b4b;
+  --accent-soft: #e6efea;
+  --accent-text: #1f4c3f;
+  /* 压在 accent 底色上的文字/图标颜色 */
+  --on-accent: #ffffff;
+  --selection: rgba(47, 107, 88, 0.16);
+
+  /* ---------- 语义（全部 AA） ---------- */
+  --success: #2f7350;
+  --warning: #8f5b10;
+  --danger: #b4483c;
+  --info: #3f6ea8;
+
+  /* ---------- 阴影：只有浮层用 ---------- */
+  --shadow-1: 0 1px 2px rgba(26, 24, 20, 0.05);
+  --shadow-2: 0 4px 16px rgba(26, 24, 20, 0.1);
+  --shadow-3: 0 16px 48px rgba(26, 24, 20, 0.18);
+
+  /* ---------- 字号：7 档 ---------- */
+  --fs-2xs: 11px;
+  --lh-2xs: 16px;
+  --fs-xs: 12px;
+  --lh-xs: 18px;
+  --fs-sm: 13px;
+  --lh-sm: 20px;
+  --fs-base: 14px;
+  --lh-base: 22px;
+  --fs-md: 16px;
+  --lh-md: 26px;
+  --fs-lg: 20px;
+  --lh-lg: 28px;
+  --fs-xl: 28px;
+  --lh-xl: 36px;
+
+  /* ---------- 字重：只有两档。系统字体（雅黑 / PingFang）不提供 500–650，
+     写 550/600/620 在 Windows 上会被夹成 400，层级会凭空消失 ---------- */
+  --fw-regular: 400;
+  --fw-bold: 700;
+
+  /* ---------- 间距：4px 栅格（1px 描边与 2px 行距例外） ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 40px;
+  --sp-8: 56px;
+
+  /* ---------- 圆角：三档 + 全圆 ---------- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+
+  /* ---------- 图标：三档 + 唯一线宽 ---------- */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-stroke: 1.75;
+
+  /* ---------- 动效 ---------- */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-micro: 120ms;
+  --dur-std: 180ms;
+  --dur-panel: 220ms;
+  --dur-slow: 320ms;
+
+  /* ---------- 字体 ---------- */
+  --font-ui: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  /* 笔记正文的默认字体，与工具栏字体菜单的「微软雅黑」保持同一套回退项：
+     从未设置过格式的正文按它渲染，选中文字时工具栏显示的也是它 */
+  --font-content: 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-serif: 'Source Han Serif SC', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  --font-mono: 'Cascadia Code', Consolas, 'SF Mono', monospace;
+
+  /* ---------- 正文默认排版：微软雅黑 14 号 ----------
+     设置里的「编辑器字号」保存后会用行内 --editor-size 覆盖；没设置过就是 14px。 */
+  --editor-size: 14px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #131210;
+  --surface-list: #191816;
+  --surface-page: #1f1e1a;
+  --surface: #262420;
+  --surface-2: #2a2824;
+  --surface-3: #322f2a;
+
+  --text-1: #edeae3;
+  --text-2: #a9a399;
+  --text-3: #9a948a;
+
+  --line: #2e2b26;
+  --line-strong: #423e37;
+
+  --accent: #6fb79b;
+  --accent-hover: #8ac9b0;
+  --accent-soft: #1e2c27;
+  --accent-text: #cdeadd;
+  --on-accent: #12211b;
+  --selection: rgba(111, 183, 155, 0.2);
+
+  --success: #5cae84;
+  --warning: #d8a04a;
+  --danger: #d96a5e;
+  --info: #6f9bd8;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* 浅色（2026-10-30 起为默认主题，内部键沿用 paper）：参考稿的亮白配色。
+   去掉了原来的米黄，全部换成中性白：侧栏 #FBFBF9 → 列表 #F7F7F4 → 内容 #FFFFFF，
+   三级只差一点点，白卡片压在浅灰列表上；描边比暖白更淡，避免整片显灰 */
+[data-theme='paper'] {
+  --canvas: #fbfbf9;
+  --surface-list: #f7f7f4;
+  --surface-page: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f2f2ee;
+  --surface-3: #eaeae4;
+
+  --text-1: #1b1a17;
+  --text-2: #514d46;
+  --text-3: #716e67;
+
+  --line: #ecece6;
+  --line-strong: #d9d9d2;
+
+  --accent: #2d6756;
+  --accent-hover: #245244;
+  --accent-soft: #e7f0ed;
+  --accent-text: #1d4a3c;
+  --on-accent: #ffffff;
+  --selection: rgba(45, 103, 86, 0.13);
+
+  --success: #2f7350;
+  --warning: #8f5b10;
+  --danger: #b4483c;
+  --info: #3f6ea8;
+
+  --shadow-1: 0 1px 2px rgba(26, 24, 20, 0.04);
+  --shadow-2: 0 4px 16px rgba(26, 24, 20, 0.08);
+  --shadow-3: 0 16px 48px rgba(26, 24, 20, 0.16);
+}

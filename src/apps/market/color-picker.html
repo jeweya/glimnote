@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配色助手</title>
+<style>
+  :root{
+    --bg:#fffdf8; --surface:#fff; --line:#e6e3dc; --text:#1a1916; --sub:#6b6a65;
+    --accent:#2f6b58; --accent-soft:#e8f1ed; --warn:#b4483c; --dim:#ede9e0;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+      --accent:#6fae94;--accent-soft:#22302b;--warn:#e08a7d;--dim:#33322e;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 26px}
+  .wrap{width:100%;max-width:560px;display:flex;flex-direction:column;gap:12px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .sub{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .hero{border-radius:16px;border:1px solid var(--line);box-shadow:var(--shadow);
+    padding:20px;display:flex;flex-direction:column;gap:10px;min-height:120px;justify-content:flex-end;
+    transition:background .15s}
+  .hero .hex{font-size:26px;font-weight:600;letter-spacing:.03em;font-variant-numeric:tabular-nums}
+  .hero .tag{font-size:11px;opacity:.75}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;align-items:center;gap:8px}
+  .row label{font-size:11px;color:var(--sub);width:34px;flex:none}
+  .row input[type="range"]{flex:1;accent-color:var(--accent);min-width:0}
+  .row output{font-size:11px;color:var(--sub);width:28px;text-align:right;font-variant-numeric:tabular-nums}
+  .hexrow{display:flex;gap:6px}
+  .hexrow input[type="text"]{flex:1;font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:15px;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:10px;
+    padding:8px 11px;min-width:0;text-transform:uppercase}
+  .hexrow input[type="color"]{width:46px;height:38px;padding:0;border:1px solid var(--line);
+    border-radius:10px;background:var(--bg);cursor:pointer}
+  .hexrow input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .codes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .code{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);
+    border-radius:9px;padding:6px 9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:11px;cursor:pointer;min-width:0}
+  .code:hover{border-color:var(--accent)}
+  .code span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .code em{font-style:normal;color:var(--sub);font-size:10px;flex:none}
+  .contrast{display:flex;flex-direction:column;gap:6px}
+  .crow{display:flex;align-items:center;gap:9px;font-size:12px}
+  .crow .demo{width:56px;height:30px;border-radius:8px;border:1px solid var(--line);
+    display:grid;place-items:center;font-size:13px;font-weight:600;flex:none}
+  .crow .val{font-variant-numeric:tabular-nums;font-weight:600;min-width:52px}
+  .badge{font-size:10px;border-radius:999px;padding:1px 7px;border:1px solid var(--line);color:var(--sub)}
+  .badge.pass{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .badge.fail{border-color:var(--warn);color:var(--warn)}
+  .shades{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+  .shades button{aspect-ratio:1;border:1px solid rgba(0,0,0,.06);border-radius:5px;cursor:pointer;padding:0}
+  .shades button:hover{outline:2px solid var(--accent);outline-offset:1px}
+  .h{font-size:11px;color:var(--sub);margin:0}
+  .msg{font-size:12px;color:var(--accent);min-height:16px;text-align:center}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>配色助手</h1>
+    <p class="sub">挑一个颜色，看看它配黑字白字读起来累不累</p>
+  </div>
+
+  <div class="hero" id="hero">
+    <div class="hex" id="heroHex">#2F6B58</div>
+    <div class="tag" id="heroTag">深绿 · 色相 159°</div>
+  </div>
+
+  <div class="panel">
+    <div class="hexrow">
+      <input type="text" id="hexInput" value="#2F6B58" maxlength="7" spellcheck="false" aria-label="十六进制颜色">
+      <input type="color" id="native" value="#2f6b58" aria-label="调色板">
+    </div>
+    <div class="row"><label for="r">R</label><input type="range" id="r" min="0" max="255" value="47"><output id="ro">47</output></div>
+    <div class="row"><label for="g">G</label><input type="range" id="g" min="0" max="255" value="107"><output id="go">107</output></div>
+    <div class="row"><label for="b">B</label><input type="range" id="b" min="0" max="255" value="88"><output id="bo">88</output></div>
+    <div class="codes">
+      <div class="code" id="copyHex" role="button" tabindex="0"><span id="codeHex">#2F6B58</span><em>HEX</em></div>
+      <div class="code" id="copyRgb" role="button" tabindex="0"><span id="codeRgb">rgb(47,107,88)</span><em>RGB</em></div>
+      <div class="code" id="copyHsl" role="button" tabindex="0"><span id="codeHsl">hsl(159,39%,38%)</span><em>HSL</em></div>
+      <div class="code" id="copyRgba" role="button" tabindex="0"><span id="codeRgba">rgba(47,107,88,0.85)</span><em>带透明度</em></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="h">和文字搭配的对比度（WCAG，4.5 才适合正文）</p>
+    <div class="contrast" id="contrast"></div>
+  </div>
+
+  <div class="panel">
+    <p class="h">同色系的深浅变化，点一下换过去</p>
+    <div class="shades" id="shades"></div>
+  </div>
+
+  <div class="msg" id="msg" role="status"></div>
+  <div class="foot">点色值可复制 · 离线可用</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'last';
+  var state = { r: 47, g: 107, b: 88 };
+  var touched = false;
+  var bridge = window.glimnote && window.glimnote.data;
+
+  function load() {
+    if (!bridge) return Promise.resolve(null);
+    return bridge.get(KEY, '').then(function (v) { return typeof v === 'string' ? v : ''; })
+      .catch(function () { return ''; });
+  }
+  function save() {
+    if (!bridge) return Promise.resolve();
+    return bridge.set(KEY, toHex()).catch(function () {});
+  }
+
+  var el = {
+    hero: document.getElementById('hero'), heroHex: document.getElementById('heroHex'),
+    heroTag: document.getElementById('heroTag'), hexInput: document.getElementById('hexInput'),
+    native: document.getElementById('native'),
+    r: document.getElementById('r'), g: document.getElementById('g'), b: document.getElementById('b'),
+    ro: document.getElementById('ro'), go: document.getElementById('go'), bo: document.getElementById('bo'),
+    codeHex: document.getElementById('codeHex'), codeRgb: document.getElementById('codeRgb'),
+    codeHsl: document.getElementById('codeHsl'), codeRgba: document.getElementById('codeRgba'),
+    contrast: document.getElementById('contrast'), shades: document.getElementById('shades'),
+    msg: document.getElementById('msg')
+  };
+
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  function toHex() {
+    return '#' + [state.r, state.g, state.b].map(function (n) {
+      return clamp(Math.round(n), 0, 255).toString(16).padStart(2, '0');
+    }).join('').toUpperCase();
+  }
+  function parseHex(s) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(s).trim());
+    if (!m) return null;
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16)
+    };
+  }
+  function toHsl(c) {
+    var r = c.r / 255, g = c.g / 255, b = c.b / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var h = 0, s = 0, l = (max + min) / 2;
+    var d = max - min;
+    if (d !== 0) {
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+  }
+  function hslToRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    s /= 100; l /= 100;
+    var c = (1 - Math.abs(2 * l - 1)) * s;
+    var x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    var m = l - c / 2;
+    var seg = Math.floor(h / 60) % 6;
+    var rgb = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][seg];
+    return {
+      r: Math.round((rgb[0] + m) * 255),
+      g: Math.round((rgb[1] + m) * 255),
+      b: Math.round((rgb[2] + m) * 255)
+    };
+  }
+  function luminance(c) {
+    var a = [c.r, c.g, c.b].map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+  }
+  function ratio(a, b) {
+    var l1 = luminance(a), l2 = luminance(b);
+    var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function hueName(h, s, l) {
+    if (s < 8) return l > 85 ? '近白' : l < 15 ? '近黑' : '灰';
+    if (l > 92) return '浅色';
+    if (h < 15 || h >= 345) return '红';
+    if (h < 45) return '橙';
+    if (h < 70) return '黄';
+    if (h < 165) return '绿';
+    if (h < 195) return '青';
+    if (h < 255) return '蓝';
+    if (h < 290) return '紫';
+    if (h < 345) return '粉';
+    return '红';
+  }
+  function readableOn(c) {
+    // 按实际对比度选黑字或白字，而不是只看亮度阈值
+    return ratio(c, BLACK) >= ratio(c, WHITE) ? '#1a1916' : '#ffffff';
+  }
+
+  var WHITE = { r: 255, g: 255, b: 255 };
+  var BLACK = { r: 0, g: 0, b: 0 };
+
+  function render() {
+    var hex = toHex();
+    var hsl = toHsl(state);
+    var fg = readableOn(state);
+
+    el.hero.style.background = hex;
+    el.hero.style.color = fg;
+    el.heroHex.textContent = hex;
+    el.heroTag.textContent = hueName(hsl.h, hsl.s, hsl.l) + ' · 色相 ' + hsl.h + '° · 亮度 ' + hsl.l + '%';
+
+    el.hexInput.value = hex;
+    el.native.value = hex.toLowerCase();
+    el.r.value = state.r; el.g.value = state.g; el.b.value = state.b;
+    el.ro.value = state.r; el.go.value = state.g; el.bo.value = state.b;
+
+    el.codeHex.textContent = hex;
+    el.codeRgb.textContent = 'rgb(' + state.r + ',' + state.g + ',' + state.b + ')';
+    el.codeHsl.textContent = 'hsl(' + hsl.h + ',' + hsl.s + '%,' + hsl.l + '%)';
+    el.codeRgba.textContent = 'rgba(' + state.r + ',' + state.g + ',' + state.b + ',0.85)';
+
+    el.contrast.textContent = '';
+    [{ bg: WHITE, name: '白字', fg: WHITE }, { bg: BLACK, name: '黑字', fg: BLACK }].forEach(function (x) {
+      var r = ratio(state, x.fg);
+      var row = document.createElement('div');
+      row.className = 'crow';
+      var demo = document.createElement('div');
+      demo.className = 'demo';
+      demo.style.background = hex;
+      demo.style.color = x.fg === WHITE ? '#fff' : '#000';
+      demo.textContent = 'Aa 文字';
+      var val = document.createElement('span');
+      val.className = 'val';
+      val.textContent = r.toFixed(2) + ' : 1';
+      var aa = document.createElement('span');
+      aa.className = 'badge ' + (r >= 4.5 ? 'pass' : 'fail');
+      aa.textContent = r >= 4.5 ? '正文可用' : r >= 3 ? '仅适合大标题' : '对比不足';
+      var aaa = document.createElement('span');
+      aaa.className = 'badge ' + (r >= 7 ? 'pass' : 'fail');
+      aaa.textContent = r >= 7 ? 'AAA 达标' : 'AAA 未达';
+      row.appendChild(demo);
+      row.appendChild(val);
+      row.appendChild(aa);
+      row.appendChild(aaa);
+      el.contrast.appendChild(row);
+    });
+
+    el.shades.textContent = '';
+    [-40, -28, -16, -8, 0, 8, 16, 26, 36, 46].forEach(function (dl) {
+      var c = hslToRgb(hsl.h, hsl.s, clamp(hsl.l + dl, 3, 97));
+      var b = document.createElement('button');
+      b.type = 'button';
+      var hx = '#' + [c.r, c.g, c.b].map(function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+      b.style.background = hx;
+      b.title = hx.toUpperCase() + '（亮度 ' + clamp(hsl.l + dl, 3, 97) + '%）';
+      b.setAttribute('aria-label', '换成 ' + hx);
+      b.addEventListener('click', function () {
+        touched = true;
+        state = c;
+        el.msg.textContent = '已换成 ' + hx.toUpperCase();
+        render();
+        save();
+      });
+      el.shades.appendChild(b);
+    });
+  }
+
+  function applyColor(c, quiet) {
+    touched = true;
+    state = { r: clamp(Math.round(c.r), 0, 255), g: clamp(Math.round(c.g), 0, 255), b: clamp(Math.round(c.b), 0, 255) };
+    render();
+    if (!quiet) save();
+  }
+
+  el.r.addEventListener('input', function () { applyColor({ r: +el.r.value, g: state.g, b: state.b }); });
+  el.g.addEventListener('input', function () { applyColor({ r: state.r, g: +el.g.value, b: state.b }); });
+  el.b.addEventListener('input', function () { applyColor({ r: state.r, g: state.g, b: +el.b.value }); });
+  el.native.addEventListener('input', function () {
+    var c = parseHex(el.native.value);
+    if (c) applyColor(c);
+  });
+  el.hexInput.addEventListener('input', function () {
+    var c = parseHex(el.hexInput.value);
+    if (!c) {
+      el.msg.textContent = '格式像 #2F6B58 或 #2F6';
+      return;
+    }
+    el.msg.textContent = '';
+    touched = true;
+    state = c;
+    render();
+    save();
+  });
+
+  function copy(text, label) {
+    var done = function () { el.msg.textContent = label + ' 已复制'; };
+    var fail = function () {
+      el.msg.textContent = '复制失败，手动选中复制：' + text;
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, fail);
+        return;
+      }
+    } catch (e) { /* 忽略 */ }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? done() : fail();
+    } catch (e2) {
+      fail();
+    }
+  }
+
+  [['copyHex', function () { return toHex(); }, 'HEX'],
+   ['copyRgb', function () { return 'rgb(' + state.r + ',' + state.g + ',' + state.b + ')'; }, 'RGB'],
+   ['copyHsl', function () {
+     var h = toHsl(state);
+     return 'hsl(' + h.h + ',' + h.s + '%,' + h.l + '%)';
+   }, 'HSL'],
+   ['copyRgba', function () {
+     return 'rgba(' + state.r + ',' + state.g + ',' + state.b + ',0.85)';
+   }, 'RGBA']
+  ].forEach(function (item) {
+    var node = document.getElementById(item[0]);
+    node.addEventListener('click', function () { copy(item[1](), item[2]); });
+    node.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        copy(item[1](), item[2]);
+      }
+    });
+  });
+
+  load().then(function (hex) {
+    var c = hex ? parseHex(hex) : null;
+    if (!touched && c) state = c;
+    render();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

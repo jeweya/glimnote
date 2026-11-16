@@ -1,0 +1,31 @@
+{
+  "name": "萤光笔记",
+  "short_name": "萤光笔记",
+  "description": "萤光笔记 Glimnote：萤火微光，记录细碎微小的灵感。本地优先的 Markdown 笔记，自动同步到你的私有 Git 仓库。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbfaf7",
+  "theme_color": "#2f6b58",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

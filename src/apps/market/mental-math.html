@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>口算练习</title>
+<style>
+  :root{--bg:#fffdf8;--surface:#fff;--line:#e6e3dc;--text:#1a1916;--sub:#6b6a65;
+    --accent:#2f6b58;--accent-soft:#e8f1ed;--track:#efece4;--warn:#b4483c;--warn-soft:#f7e7e4;
+    --shadow:0 1px 2px rgba(26,25,22,.05),0 8px 24px rgba(26,25,22,.05)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1b1b19;--surface:#242422;--line:#373632;--text:#eceae4;--sub:#a4a29b;
+    --accent:#6fae94;--accent-soft:#22302b;--track:#2e2e2a;--warn:#e08a7d;--warn-soft:#3a2624;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25)}}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:18px 14px 22px}
+  .wrap{width:100%;max-width:520px;display:flex;flex-direction:column;gap:12px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  h1{margin:0;font-size:17px;font-weight:600}
+  .head p{margin:2px 0 0;font-size:12px;color:var(--sub)}
+  .head .streak{font-size:12px;color:var(--sub);white-space:nowrap}
+  .head .streak b{display:block;font-size:17px;color:var(--accent);font-variant-numeric:tabular-nums;text-align:right}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px}
+  .modes{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:14px}
+  .chip{border:1px solid var(--line);background:var(--bg);color:var(--sub);font:inherit;font-size:12px;
+    padding:5px 11px;border-radius:999px;cursor:pointer}
+  .chip.on{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+  .qbox{text-align:center;padding:10px 0 4px}
+  .q{font-size:34px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;line-height:1.3}
+  .ans-row{display:flex;gap:8px;margin-top:14px}
+  input{flex:1;min-width:0;font:inherit;font-size:22px;font-weight:600;text-align:center;color:var(--text);
+    background:var(--bg);border:1.5px solid var(--line);border-radius:11px;padding:10px;outline:none;
+    font-variant-numeric:tabular-nums}
+  input:focus{border-color:var(--accent)}
+  input.bad{border-color:var(--warn);background:var(--warn-soft)}
+  input.good{border-color:var(--accent);background:var(--accent-soft)}
+  .btn{font:inherit;font-size:14px;padding:10px 16px;border-radius:11px;border:1px solid var(--line);
+    background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .msg{text-align:center;font-size:12px;color:var(--sub);min-height:20px;margin-top:10px}
+  .msg.warn{color:var(--warn)}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .metric{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:8px 10px;text-align:center}
+  .metric span{display:block;font-size:11px;color:var(--sub)}
+  .metric b{font-size:16px;font-variant-numeric:tabular-nums}
+  .history{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+  .history h2{font-size:12px;color:var(--sub);font-weight:500;margin:0 0 6px}
+  .bars{display:flex;align-items:flex-end;gap:5px;height:44px}
+  .bars div{flex:1;background:var(--accent-soft);border-radius:4px 4px 0 0;position:relative;min-height:3px}
+  .bars div::after{content:attr(data-v);position:absolute;bottom:-15px;left:0;right:0;text-align:center;font-size:9px;color:var(--sub)}
+  .bars div.has{background:var(--accent)}
+  .foot{font-size:11px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div><h1>口算练习</h1><p>一次 20 题，看速度也看准确率</p></div>
+    <div class="streak">连续答对 <b id="streak">0</b></div>
+  </div>
+  <div class="card">
+    <div class="modes" id="modes" role="group" aria-label="难度"></div>
+    <div class="qbox"><div class="q" id="question">准备好了吗</div></div>
+    <div class="ans-row">
+      <input type="text" id="answer" inputmode="numeric" autocomplete="off" placeholder="输入答案" aria-label="答案">
+      <button class="btn primary" id="submit" type="button">确定</button>
+    </div>
+    <div class="msg" id="msg" role="status"></div>
+    <div class="stats">
+      <div class="metric"><span>已答</span><b id="done">0 / 20</b></div>
+      <div class="metric"><span>正确率</span><b id="rate">—</b></div>
+      <div class="metric"><span>最快</span><b id="best">—</b></div>
+    </div>
+    <div class="history">
+      <h2>最近 7 次正确率</h2>
+      <div class="bars" id="bars"></div>
+    </div>
+  </div>
+  <div class="foot">记录保存在应用里 · 回车提交，答错会提示正确答案</div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'math';
+  var TOTAL = 20;
+  var LEVELS = [
+    { key: 'add', label: '两位数加减' },
+    { key: 'mul', label: '乘法口诀' },
+    { key: 'mix', label: '混合运算' }
+  ];
+
+  var mem = {};
+  var bridge = window.glimnote && window.glimnote.data;
+  function get(k, d) {
+    if (!bridge) return Promise.resolve(k in mem ? mem[k] : d);
+    return bridge.get(k, d).catch(function () { return k in mem ? mem[k] : d; });
+  }
+  function set(k, v) {
+    mem[k] = v;
+    if (!bridge) return Promise.resolve();
+    return bridge.set(k, v).catch(function () {});
+  }
+
+  var state = {
+    level: 'add',
+    question: null,     // {text, answer}
+    done: 0,
+    right: 0,
+    wrong: 0,
+    streak: 0,
+    best: 0,            // 最快一题毫秒
+    startedAt: 0,
+    history: []         // [{right,total,at}]
+  };
+  var qStart = 0;
+  var locked = false;
+  var advanceTimer = null;
+  var round = 0;
+
+  var modesEl = document.getElementById('modes');
+  var qEl = document.getElementById('question');
+  var ansEl = document.getElementById('answer');
+  var msgEl = document.getElementById('msg');
+
+  function save() {
+    set(KEY, {
+      level: state.level,
+      history: state.history.slice(-7)
+    });
+  }
+  function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+  function makeQuestion(level) {
+    if (level === 'mul') {
+      var a = rand(2, 9), b = rand(2, 9);
+      return { text: a + ' × ' + b + ' =', answer: a * b };
+    }
+    if (level === 'mix') {
+      var kind = rand(0, 2);
+      if (kind === 0) {
+        var x = rand(2, 9), y = rand(2, 9), z = rand(1, 30);
+        return { text: x + ' × ' + y + ' + ' + z + ' =', answer: x * y + z };
+      }
+      if (kind === 1) {
+        var p = rand(2, 9), q2 = rand(2, 9);
+        return { text: (p * q2) + ' ÷ ' + p + ' =', answer: q2 };
+      }
+      var m = rand(20, 99), n = rand(2, 9);
+      return { text: m + ' × ' + n + ' =', answer: m * n };
+    }
+    var type = rand(0, 1);
+    if (type === 0) {
+      var s1 = rand(10, 89), s2 = rand(10, 99 - s1);
+      return { text: s1 + ' + ' + s2 + ' =', answer: s1 + s2 };
+    }
+    var big = rand(30, 99), small = rand(10, big - 1);
+    return { text: big + ' − ' + small + ' =', answer: big - small };
+  }
+
+  function paintModes() {
+    modesEl.textContent = '';
+    LEVELS.forEach(function (lv) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip' + (state.level === lv.key ? ' on' : '');
+      btn.textContent = lv.label;
+      btn.setAttribute('aria-pressed', state.level === lv.key ? 'true' : 'false');
+      btn.addEventListener('click', function () {
+        if (state.level === lv.key) return;
+        state.level = lv.key;
+        paintModes();
+        restart('换了题型，重新开始 20 题');
+      });
+      modesEl.appendChild(btn);
+    });
+  }
+
+  function paintStats() {
+    document.getElementById('done').textContent = state.done + ' / ' + TOTAL;
+    var rate = state.done ? Math.round(state.right / state.done * 100) : null;
+    document.getElementById('rate').textContent = rate === null ? '—' : rate + '%';
+    document.getElementById('best').textContent = state.best ? (state.best / 1000).toFixed(1) + 's' : '—';
+    document.getElementById('streak').textContent = String(state.streak);
+    paintBars();
+  }
+
+  function paintBars() {
+    var bars = document.getElementById('bars');
+    bars.textContent = '';
+    var list = state.history.slice(-7);
+    if (list.length < 7) {
+      for (var i = list.length; i < 7; i += 1) list.unshift(null);
+    }
+    list.forEach(function (h) {
+      var d = document.createElement('div');
+      if (h) {
+        var pct = Math.round(h.right / h.total * 100);
+        d.style.height = Math.max(6, pct) + '%';
+        d.setAttribute('data-v', pct);
+        if (pct >= 80) d.className = 'has';
+      } else {
+        d.style.height = '4px';
+        d.setAttribute('data-v', '');
+      }
+      bars.appendChild(d);
+    });
+  }
+
+  function nextQuestion() {
+    if (state.done >= TOTAL) {
+      finishSet();
+      return;
+    }
+    state.question = makeQuestion(state.level);
+    qEl.textContent = state.question.text;
+    qStart = Date.now();
+    ansEl.value = '';
+    ansEl.classList.remove('bad', 'good');
+    ansEl.focus();
+  }
+
+  function restart(message) {
+    round += 1;
+    clearTimeout(advanceTimer);
+    advanceTimer = null;
+    state.done = 0;
+    state.right = 0;
+    state.wrong = 0;
+    state.streak = 0;
+    state.best = 0;
+    state.question = null;
+    locked = false;
+    qEl.textContent = '准备好了吗';
+    ansEl.value = '';
+    ansEl.classList.remove('bad', 'good');
+    msgEl.textContent = message || '点下面开始第一题';
+    msgEl.classList.remove('warn');
+    paintStats();
+    ansEl.focus();
+    nextQuestion();
+  }
+
+  function finishSet() {
+    var total = state.done;
+    var rate = Math.round(state.right / total * 100);
+    state.history.push({ right: state.right, total: total, at: new Date().toISOString() });
+    state.history = state.history.slice(-7);
+    save();
+    state.question = null;
+    qEl.textContent = rate + '%';
+    msgEl.textContent = '这一组完成：答对 ' + state.right + ' 题，答错 ' + total - state.right + ' 题。想再来一组就输入任意数。';
+    msgEl.classList.remove('warn');
+    paintStats();
+    ansEl.focus();
+  }
+
+  function submit() {
+    if (!state.question) {
+      restart('新的一组开始');
+      return;
+    }
+    var raw = ansEl.value.trim();
+    if (!raw) { ansEl.focus(); return; }
+    if (locked) return;
+    locked = true;
+    var value = Number(raw.replace(/[^\d-]/g, ''));
+    var ok = Number.isFinite(value) && value === state.question.answer;
+    var ms = Date.now() - qStart;
+    state.done += 1;
+    if (ok) {
+      state.right += 1;
+      state.streak += 1;
+      if (!state.best || ms < state.best) state.best = ms;
+      ansEl.classList.add('good');
+      msgEl.textContent = state.streak >= 3 ? '连对 ' + state.streak + ' 题，继续保持' : '答对了';
+      msgEl.classList.remove('warn');
+    } else {
+      state.wrong += 1;
+      state.streak = 0;
+      ansEl.classList.add('bad');
+      msgEl.textContent = '正确答案是 ' + state.question.answer;
+      msgEl.classList.add('warn');
+    }
+    paintStats();
+    var delay = ok ? 260 : 900;
+    var myRound = round;
+    clearTimeout(advanceTimer);
+    advanceTimer = setTimeout(function () {
+      if (round !== myRound) return;
+      locked = false;
+      nextQuestion();
+    }, delay);
+  }
+
+  document.getElementById('submit').addEventListener('click', submit);
+  ansEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  });
+
+  paintModes();
+  get(KEY, null).then(function (saved) {
+    if (saved && typeof saved === 'object') {
+      if (LEVELS.some(function (l) { return l.key === saved.level; })) state.level = saved.level;
+      if (Array.isArray(saved.history)) {
+        state.history = saved.history.slice(-7).filter(function (h) {
+          return h && typeof h.right === 'number' && typeof h.total === 'number' && h.total > 0;
+        });
+      }
+    }
+    paintModes();
+    paintStats();
+    restart('点「确定」开始，或直接输入答案');
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var api = window.glimnote && window.glimnote.data;
+  if (!api) return;
+  var timer = null;
+  function banner() {
+    var box = document.getElementById('__glnError');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__glnError';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:10px 12px;' +
+        'border-radius:10px;background:#8f2f26;color:#fff;font:13px/1.5 system-ui,sans-serif;' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.25);display:none;max-width:560px;margin:0 auto;';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+  function show(message) {
+    var box = banner();
+    box.textContent = message || '未保存，请重试';
+    box.style.display = 'block';
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.style.display = 'none'; }, 5000);
+  }
+  ['set', 'remove', 'clear'].forEach(function (name) {
+    var original = api[name];
+    if (typeof original !== 'function') return;
+    api[name] = function () {
+      var promise = original.apply(api, arguments);
+      if (promise && typeof promise.then === 'function') {
+        promise.then(null, function (error) {
+          show('保存失败：' + ((error && error.message) || '请重试'));
+        });
+      }
+      return promise;
+    };
+  });
+})();
+</script>
+</body>
+</html>

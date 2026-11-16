@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+dist-electron/
+.cache/
+coverage/
+package-lock.json
+docs/mydoc/
+docs/images/
+src/apps/market/
+build/
+public/icon.svg
+shots*/
+.claude/
+.workbuddy/
