@@ -2,6 +2,10 @@
   <img src="docs/images/banner.jpg" alt="萤光笔记 Glimnote —— Light up your ideas, one note at a time." width="100%" />
 </p>
 
+<p align="center">
+  <strong>简体中文</strong> · <a href="./README.en.md">English</a>
+</p>
+
 # 萤光笔记 Glimnote
 
 > 萤火微光，记录细碎微小的灵感。
