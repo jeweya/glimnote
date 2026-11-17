@@ -14,6 +14,7 @@ import {
   readText,
   removePath,
   scanIdeas,
+  scanNotebookDirs,
   scanNotes,
   scanTasks,
   scanTrash,
@@ -30,6 +31,11 @@ export async function loadNotes() {
 
 export async function loadTrash() {
   return scanTrash();
+}
+
+/** notes/ 下真实存在的文件夹（包括已经空的），用来让侧栏保留空笔记本 */
+export async function loadNotebookDirs() {
+  return scanNotebookDirs();
 }
 
 function jitter() {
@@ -494,6 +500,12 @@ export async function renameNotebook(oldPath: string, newPath: string, notes: No
   // 笔记搬走后原目录会空着；只删掉确实为空的目录，里面有东西就保持原样
   await removeEmptyFolders(`${NOTES}/${oldPath}`);
   return affected.length;
+}
+
+/** 显式删除笔记本后清掉磁盘上的空目录，避免下次扫描又把它显示回来 */
+export async function removeNotebookDir(notebook: string) {
+  if (!notebook) return;
+  await removeEmptyFolders(`${NOTES}/${notebook}`);
 }
 
 async function removeEmptyFolders(dir: string) {

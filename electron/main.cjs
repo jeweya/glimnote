@@ -28,9 +28,26 @@ const { createConfigStore } = require('./config-file.cjs');
 const { createWorkspaceManager, repoWorkspaceName } = require('./workspace.cjs');
 const cardPlacement = require('./card-placement.cjs');
 const { createSystemAppsController } = require('./system-apps.cjs');
+const { execFileSync } = require('node:child_process');
 
 const isDev = process.argv.includes('--dev');
 const ASSETS = path.join(__dirname, 'assets');
+
+/**
+ * Windows 启动项写在 HKCU\Software\Microsoft\Windows\CurrentVersion\Run，
+ * 值名默认取 AppUserModelId。安装器的 --install-autostart 和设置页的开关
+ * 必须用同一个值名，否则会写出两条记录，登录时被拉起两次。
+ * 这里在进程最早期固定 AUMID，并在所有 setLoginItemSettings 里显式带上 name。
+ */
+const APP_USER_MODEL_ID = 'com.glimnote.app';
+const LOGIN_ITEM_NAME = APP_USER_MODEL_ID;
+const LOGIN_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const REG_EXE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+try {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+} catch {
+  /* 设置失败只影响任务栏分组；启动项已经显式指定值名，不受影响 */
+}
 
 /**
  * 极简启动面包屑：同步追加到 <userData>/boot.log，记录「主进程脚本跑到了哪一步」。
@@ -57,8 +74,12 @@ function writeBootLine(text) {
  * GitCode 没有 GitHub 那样的 releases/latest 固定目录，所以先问一次 API 拿到
  * 最新版本 tag，再让 generic provider 指向该版本的下载目录，由它读取 latest.yml。
  * 发版时把安装包与 latest.yml 传到同一个 tag（如 v0.1.1）即可。
+ *
+ * GitCode 上勾选「预发版本」的 Release 不会进入自动更新：自动检查只挑正式版，
+ * 设置页手动点「检查更新」时才允许拿到预发版，方便先手动试用。
  */
 const UPDATE_API = 'https://api.gitcode.com/api/v5/repos/jewey/glimnote/releases/latest';
+const UPDATE_LIST_API = 'https://api.gitcode.com/api/v5/repos/jewey/glimnote/releases?per_page=50';
 const UPDATE_DOWNLOAD_BASE = 'https://gitcode.com/jewey/glimnote/releases/download';
 const UPDATE_TIMEOUT = 10000;
 
@@ -368,6 +389,44 @@ function loginItemState() {
       enabled: false,
       error: `读取开机启动项失败：${(e && e.message) || e}`,
     };
+  }
+}
+
+/**
+ * 清理旧版本留下的重复开机启动项。
+ *
+ * 0.1.17 及更早，安装器的 --install-autostart 没有先设置 AppUserModelId，
+ * 写进 Run 的值名和设置页开关写的不一样，同一个程序因此留下两条记录：
+ * 登录时被拉起两次，第二条虽然会因单实例锁退出，但「启动应用」列表里会看到两个。
+ * 这里按「命令行指向当前 exe」识别，只删掉不是标准值名的那几条。
+ */
+function cleanupLoginItems() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  let out = '';
+  try {
+    out = execFileSync(REG_EXE, ['query', LOGIN_RUN_KEY], { encoding: 'utf8', windowsHide: true });
+  } catch {
+    return;
+  }
+  // 用 exe 文件名 + --autostart 判断，避免注册表输出按系统代码页编码时中文路径对不上
+  const exe = path.basename(process.execPath).toLowerCase();
+  for (const line of out.split(/\r?\n/)) {
+    // 行格式：    <值名>    REG_SZ    "C:\...\Glimnote.exe" --autostart
+    const hit = /^\s{2,}(.+?)\s{4,}REG_\w+\s{4,}(.+)$/.exec(line);
+    if (!hit) continue;
+    const name = hit[1];
+    const command = hit[2].toLowerCase();
+    if (name === LOGIN_ITEM_NAME) continue;
+    if (!command.includes(exe) || !command.includes('--autostart')) continue;
+    try {
+      execFileSync(REG_EXE, ['delete', LOGIN_RUN_KEY, '/v', name, '/f'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      logFile.write('app', 'info', `已清理重复的开机启动项：${name}`);
+    } catch {
+      /* 删不掉也不影响启动 */
+    }
   }
 }
 
@@ -707,7 +766,12 @@ function registerFsHandlers() {
     if (!app.isPackaged) return loginItemState();
     const enabled = Boolean(value);
     try {
-      app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: false, args: [AUTOSTART_ARG] });
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: false,
+        args: [AUTOSTART_ARG],
+        name: LOGIN_ITEM_NAME,
+      });
       await writePrefs({ openAtLogin: enabled });
     } catch (e) {
       return {
@@ -1159,7 +1223,7 @@ function registerFsHandlers() {
     if (captureWindow && !captureWindow.isDestroyed()) captureWindow.close();
     return true;
   });
-  ipcMain.handle('app:check-update', () => checkUpdate());
+  ipcMain.handle('app:check-update', () => checkUpdate({ manual: true }));
   ipcMain.handle('app:update-ignore', (_e, version) => ignoreUpdateVersion(version));
   ipcMain.handle('app:update-info', async () => ({
     version: lastAvailableVersion,
@@ -2531,14 +2595,24 @@ function sendUpdateProgress(payload) {
 }
 
 /**
- * 向 GitCode 询问最新 Release，返回该版本的下载目录。
- * 地址是版本固定的，latest.yml 和安装包都从这里取，避免依赖 GitCode
- * 并未提供的 releases/latest 别名。
+ * GitCode 的 Release 是否被标记为预发版本。
+ * 网页上勾选「预发版本」后，接口会给出 prerelease=true / release_status=pre。
  */
-async function resolveUpdateFeed() {
+function isPrereleaseRelease(release) {
+  if (!release) return false;
+  return release.prerelease === true || String(release.release_status || '').toLowerCase() === 'pre';
+}
+
+function isDraftRelease(release) {
+  if (!release) return false;
+  return release.draft === true || String(release.release_status || '').toLowerCase() === 'draft';
+}
+
+/** 请求 GitCode API；带上时间戳避免拿到缓存的旧版本 */
+async function fetchUpdateJson(url) {
   // 用 Electron 的 net.fetch 而不是 Node 的 fetch：跟随系统代理设置，
-  // 和 electron-updater 下载安装包走同一套网络栈。带上时间戳避免拿到缓存的旧版本。
-  const res = await net.fetch(`${UPDATE_API}?t=${Date.now()}`, {
+  // 和 electron-updater 下载安装包走同一套网络栈。
+  const res = await net.fetch(`${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`, {
     signal: AbortSignal.timeout(UPDATE_TIMEOUT),
     headers: { Accept: 'application/json', 'User-Agent': 'Glimnote-Updater' },
   });
@@ -2552,17 +2626,99 @@ async function resolveUpdateFeed() {
     }
     throw new Error(`GitCode API 返回 HTTP ${res.status}${detail}`);
   }
-  const data = await res.json();
-  const tag = String((data && (data.tag_name || data.tag)) || '').trim();
-  if (!tag) throw new Error('GitCode 没有返回最新版本 tag');
-  updateFeedBase = `${UPDATE_DOWNLOAD_BASE}/${encodeURIComponent(tag)}`;
-  return updateFeedBase;
+  return res.json();
 }
 
-async function applyUpdateFeed(updater) {
-  const base = await resolveUpdateFeed();
-  updater.setFeedURL({ provider: 'generic', url: base });
-  return base;
+async function fetchLatestRelease() {
+  const data = await fetchUpdateJson(UPDATE_API);
+  return data && typeof data === 'object' ? data : null;
+}
+
+async function fetchReleaseList() {
+  const data = await fetchUpdateJson(UPDATE_LIST_API);
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.releases)) return data.releases;
+  return [];
+}
+
+/** 从 Release 列表里挑版本号最高的一条；自动检查会跳过预发版和草稿 */
+function pickRelease(list, includePrerelease) {
+  let best = null;
+  let bestVersion = '';
+  for (const item of list) {
+    if (!item || isDraftRelease(item)) continue;
+    if (!includePrerelease && isPrereleaseRelease(item)) continue;
+    const tag = String(item.tag_name || item.tag || '').trim();
+    const version = tag.replace(/^v/i, '');
+    if (!parseVersion(version)) continue;
+    if (!best || compareVersions(version, bestVersion) > 0) {
+      best = item;
+      bestVersion = version;
+    }
+  }
+  return best;
+}
+
+/** 把选中的 Release 变成下载目录，并记下它是不是预发版 */
+function useUpdateRelease(release) {
+  const tag = String((release && (release.tag_name || release.tag)) || '').trim();
+  if (!tag) return null;
+  const version = tag.replace(/^v/i, '');
+  updateFeedBase = `${UPDATE_DOWNLOAD_BASE}/${encodeURIComponent(tag)}`;
+  return {
+    base: updateFeedBase,
+    tag,
+    version,
+    prerelease: isPrereleaseRelease(release) || hasPrereleaseComponent(version),
+  };
+}
+
+/**
+ * 解析自动更新源。
+ *
+ * 自动检查只看正式版：GitCode 上标记为「预发版本」的 Release 不参与，
+ * 避免把测试包推给所有用户；用户在设置里手动点「检查更新」时才允许拿到预发版。
+ *
+ * 先问最新 Release；如果接口把预发版当成最新，或者还没有正式版，
+ * 再列一遍 Release 列表按版本号自己挑。这样无论 GitCode 的 latest
+ * 接口是否过滤预发版，自动检查都不会被预发版带偏。
+ */
+async function resolveUpdateFeed(options = {}) {
+  const includePrerelease = options.includePrerelease === true;
+  let latest = null;
+  if (!includePrerelease) {
+    try {
+      latest = await fetchLatestRelease();
+    } catch (e) {
+      logFile.write('app', 'warn', `查询最新 Release 失败：${String((e && e.message) || e).slice(0, 160)}`);
+    }
+    if (latest && !isPrereleaseRelease(latest) && !isDraftRelease(latest)) {
+      const feed = useUpdateRelease(latest);
+      if (feed) return feed;
+    }
+  }
+
+  let list = [];
+  try {
+    list = await fetchReleaseList();
+  } catch (e) {
+    logFile.write('app', 'warn', `查询 Release 列表失败：${String((e && e.message) || e).slice(0, 160)}`);
+  }
+  const picked = pickRelease(list, includePrerelease);
+  if (picked) return useUpdateRelease(picked);
+
+  if (!latest) latest = await fetchLatestRelease();
+  // 自动检查：更新源上只剩预发版时按「暂无更新」处理，宁可晚一天提示
+  // 也不把测试包推给稳定用户；手动检查会带 includePrerelease 走不到这里。
+  if (!includePrerelease && isPrereleaseRelease(latest)) return null;
+  if (isDraftRelease(latest)) return null;
+  return useUpdateRelease(latest);
+}
+
+async function applyUpdateFeed(updater, options = {}) {
+  const feed = await resolveUpdateFeed(options);
+  if (feed) updater.setFeedURL({ provider: 'generic', url: feed.base });
+  return feed;
 }
 
 function getUpdater() {
@@ -2636,29 +2792,80 @@ function friendlyUpdateError(e, fallback) {
   return fallback;
 }
 
+/** 解析 1.2.3 或 1.2.3-beta.1；解析不了时返回 null */
+function parseVersion(value) {
+  const hit = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    String(value || '').trim(),
+  );
+  if (!hit) return null;
+  return {
+    nums: [Number(hit[1]), Number(hit[2]), Number(hit[3])],
+    pre: hit[4] ? hit[4].split('.') : [],
+  };
+}
+
+/** 按 semver 规则比较：返回 1 表示 a 更新，-1 表示更旧，0 表示相同 */
+function compareVersions(a, b) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  if (!pa || !pb) {
+    // 不是标准版本号的 tag：退回数字比较，至少不会把大小方向判反
+    const num = (v) =>
+      String(v || '')
+        .trim()
+        .replace(/^v/i, '')
+        .split('.')
+        .map((part) => parseInt(part, 10) || 0);
+    const x = num(a);
+    const y = num(b);
+    const len = Math.max(x.length, y.length, 3);
+    for (let i = 0; i < len; i += 1) {
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? 1 : -1;
+    }
+    return 0;
+  }
+  for (let i = 0; i < 3; i += 1) {
+    if (pa.nums[i] !== pb.nums[i]) return pa.nums[i] > pb.nums[i] ? 1 : -1;
+  }
+  // 1.2.3 正式版比 1.2.3-beta.1 新，这是 semver 的约定
+  if (!pa.pre.length && !pb.pre.length) return 0;
+  if (!pa.pre.length) return 1;
+  if (!pb.pre.length) return -1;
+  const len = Math.max(pa.pre.length, pb.pre.length);
+  for (let i = 0; i < len; i += 1) {
+    const x = pa.pre[i];
+    const y = pb.pre[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+    if (xn && yn) {
+      if (Number(x) !== Number(y)) return Number(x) > Number(y) ? 1 : -1;
+    } else if (xn !== yn) {
+      // 数字标识符优先级低于字母标识符
+      return xn ? -1 : 1;
+    } else if (x !== y) {
+      return x > y ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+function hasPrereleaseComponent(value) {
+  const parsed = parseVersion(value);
+  return Boolean(parsed && parsed.pre.length);
+}
+
 /** 版本号比较：只有远端的版本比当前新，才算「发现新版本」。
  *  GitCode 上的最新 Release 可能落后于本机已安装的版本，不能只看「不相等」。
  */
 function isNewerVersion(remote, current) {
-  const parse = (v) =>
-    String(v || '')
-      .trim()
-      .replace(/^v/i, '')
-      .split('.')
-      .map((part) => parseInt(part, 10) || 0);
-  const a = parse(remote);
-  const b = parse(current);
-  const len = Math.max(a.length, b.length, 3);
-  for (let i = 0; i < len; i += 1) {
-    const x = a[i] || 0;
-    const y = b[i] || 0;
-    if (x > y) return true;
-    if (x < y) return false;
-  }
-  return false;
+  return compareVersions(remote, current) > 0;
 }
 
-async function checkUpdate() {
+async function checkUpdate(options = {}) {
+  // 设置页手动点「检查更新」时允许看到预发版本；启动后的自动检查只看正式版
+  const manual = options.manual === true;
   if (!app.isPackaged) {
     return { status: 'dev', message: '开发模式下不检查更新，打包安装后可用。' };
   }
@@ -2670,15 +2877,21 @@ async function checkUpdate() {
       ? `自动更新组件加载失败（${updaterLoadError.slice(0, 120)}）`
       : '当前安装包缺少自动更新组件';
     try {
-      const base = await resolveUpdateFeed();
-      const tag = decodeURIComponent(String(base.split('/').pop() || '')).trim();
-      const latest = tag.replace(/^v/i, '');
+      const feed = await resolveUpdateFeed({ includePrerelease: manual });
+      if (!feed) {
+        return {
+          status: 'latest',
+          message: `已是最新版本 ${app.getVersion()}（更新源上暂时只有预发版本，正式版发布后会自动提示）`,
+        };
+      }
+      const latest = feed.version;
       if (latest && isNewerVersion(latest, app.getVersion())) {
         lastAvailableVersion = latest;
         return {
           status: 'manual',
-          message: `发现新版本 ${latest}，但${reason}，无法自动下载。请打开发布页手动下载安装包。`,
+          message: `发现${feed.prerelease ? '预发版本' : '新版本'} ${latest}，但${reason}，无法自动下载。请打开发布页手动下载安装包。`,
           version: latest,
+          prerelease: feed.prerelease,
           manual: true,
           url: RELEASES_PAGE,
         };
@@ -2698,7 +2911,11 @@ async function checkUpdate() {
   }
   try {
     // 先解析最新 tag，再把 feed 指到对应版本的目录；GitCode 没有 latest 直链
-    await applyUpdateFeed(updater);
+    const feed = await applyUpdateFeed(updater, { includePrerelease: manual });
+    if (!feed) {
+      return { status: 'latest', message: `已是最新版本 ${app.getVersion()}` };
+    }
+    logFile.write('app', 'info', `更新源：${feed.tag}${feed.prerelease ? '（预发版本）' : ''}`);
     const res = await updater.checkForUpdates();
     const latest = res && res.updateInfo ? res.updateInfo.version : '';
     if (latest && isNewerVersion(latest, app.getVersion())) {
@@ -2706,11 +2923,15 @@ async function checkUpdate() {
       // 本地安装包必须正好是这一版，才算「已下载」
       const downloaded = updateDownloaded && updateDownloadedVersion === latest;
       updateDownloaded = downloaded;
+      const pre = feed.prerelease || hasPrereleaseComponent(latest);
       // 安装包已经在本地时别让界面再显示一次「下载更新」：告诉渲染层直接进入安装流程
       return {
         status: 'available',
-        message: downloaded ? `新版本 ${latest} 已下载，可直接重启安装` : `发现新版本 ${latest}`,
+        message: downloaded
+          ? `${pre ? '预发版本' : '新版本'} ${latest} 已下载，可直接重启安装`
+          : `发现${pre ? '预发版本' : '新版本'} ${latest}`,
         version: latest,
+        prerelease: pre,
         downloaded,
       };
     }
@@ -2848,7 +3069,14 @@ if (autostartSetupArg) {
   app.whenReady().then(() => {
     const enabled = autostartSetupArg === AUTOSTART_SETUP_ARG;
     try {
-      app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: false, args: [AUTOSTART_ARG] });
+      // 先按标准值名写一次，再清掉旧版本用别的值名留下的重复项
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: false,
+        args: [AUTOSTART_ARG],
+        name: LOGIN_ITEM_NAME,
+      });
+      cleanupLoginItems();
       logFile.write('app', 'info', `安装器${enabled ? '开启' : '关闭'}了开机启动`);
     } catch (e) {
       logFile.write('app', 'warn', `安装器设置开机启动失败：${(e && e.message) || e}`);
@@ -2880,7 +3108,7 @@ if (autostartSetupArg) {
 
   app.whenReady().then(async () => {
     writeBootLine('whenReady');
-    app.setAppUserModelId('com.glimnote.app');
+    cleanupLoginItems();
     const prefs = await readPrefs();
     cardBounds = usableCardBounds(prefs.cardBounds);
     cardPinned = prefs.cardPinned === true;

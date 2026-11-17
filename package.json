@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://gitcode.com/jewey/glimnote/issues"
   },
-  "version": "0.1.17",
+  "version": "0.1.18",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {

@@ -175,6 +175,42 @@ export async function walk(dir: string, out: string[] = []): Promise<string[]> {
   return out;
 }
 
+/**
+ * 扫描 notes/ 下真实存在的文件夹，返回相对 notes/ 的路径。
+ *
+ * 侧栏的笔记本列表原本只来自「有笔记的目录 + 本机记录」，文件夹里的笔记删完以后，
+ * 空目录还在磁盘上，但侧栏会把它当成不存在——日记这类固定文件夹看起来就“消失了”。
+ * 启动和刷新时把磁盘上的目录并进来，空文件夹才能一直留着。
+ */
+export async function scanNotebookDirs(
+  dir: string = NOTES,
+  prefix = '',
+  out: string[] = [],
+): Promise<string[]> {
+  let entries: any[] = [];
+  try {
+    entries = (await p.readdir(dir)) as any[];
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const name = typeof entry === 'string' ? entry : entry.name;
+    if (!name || name.startsWith('.')) continue;
+    const full = `${dir}/${name}`;
+    let st;
+    try {
+      st = await p.stat(full);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    const rel = prefix ? `${prefix}/${name}` : name;
+    out.push(rel);
+    await scanNotebookDirs(full, rel, out);
+  }
+  return out;
+}
+
 export async function readText(path: string) {
   const data = await p.readFile(path, 'utf8');
   return typeof data === 'string' ? data : new TextDecoder().decode(data as any);

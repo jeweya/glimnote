@@ -11,7 +11,12 @@ SetCompressor zlib
 !define APP_ID "Glimnote"
 ; 版本号默认与 package.json 保持一致，可用 makensis -DAPP_VERSION=x.y.z 覆盖
 !ifndef APP_VERSION
-  !define APP_VERSION "0.1.17"
+  !define APP_VERSION "0.1.18"
+!endif
+; VIProductVersion 只接受四段纯数字，预发版（0.1.18-beta.1）要单独传去掉后缀的数字版本：
+;   makensis -DAPP_VERSION=0.1.18-beta.1 -DAPP_VERSION_NUM=0.1.18 ...
+!ifndef APP_VERSION_NUM
+  !define APP_VERSION_NUM "${APP_VERSION}"
 !endif
 !define APP_EXE "Glimnote.exe"
 !define SRC_DIR "../release/win-unpacked"
@@ -32,7 +37,7 @@ BrandingText "${APP_NAME} ${APP_VERSION}"
 ShowInstDetails show
 ShowUninstDetails show
 
-VIProductVersion "${APP_VERSION}.0"
+VIProductVersion "${APP_VERSION_NUM}.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"
@@ -195,6 +200,10 @@ Function FinishPageLeave
     ClearErrors
     ; 让应用自己写系统启动项：值名由 Electron 决定，安装器不手写注册表
     ExecWait '"$INSTDIR\${APP_EXE}" --install-autostart'
+  ${Else}
+    ; 升级安装时取消勾选也要真的关掉，否则旧版本留下的启动项还在
+    ClearErrors
+    ExecWait '"$INSTDIR\${APP_EXE}" --remove-autostart'
   ${EndIf}
 
   ${NSD_GetState} $FinishRun $0

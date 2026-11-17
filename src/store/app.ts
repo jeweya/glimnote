@@ -487,7 +487,14 @@ export const useApp = create<AppState>((set, get) => ({
       notes.find((n) => n.id === lastId) ||
       notes.sort((a, b) => +new Date(b.updated) - +new Date(a.updated))[0] ||
       null;
-    const custom = JSON.parse(localStorage.getItem('glimnote.notebooks') || '[]') as string[];
+    const storedNotebooks = JSON.parse(localStorage.getItem('glimnote.notebooks') || '[]') as string[];
+    // 把磁盘上真实存在的文件夹也并进来：笔记删完后「日记」这类空文件夹还在，
+    // 但本地记录里可能没有它，只看笔记会让它从侧栏消失。
+    const diskNotebooks = await repo.loadNotebookDirs().catch(() => [] as string[]);
+    const custom = [...new Set([...storedNotebooks, ...diskNotebooks])];
+    if (custom.length !== storedNotebooks.length) {
+      localStorage.setItem('glimnote.notebooks', JSON.stringify(custom));
+    }
     const pendingLocal = Boolean(get().cfg && get().token) && localStorage.getItem(PENDING_KEY) === '1';
     // 默认先看首页；设置里关掉后沿用上次打开的笔记
     const startHome = localStorage.getItem('glimnote.startHome') !== '0';
@@ -523,10 +530,15 @@ export const useApp = create<AppState>((set, get) => ({
     const notes = await repo.loadNotes();
     const trash = await repo.loadTrash();
     rebuild(notes);
+    // 同步、删除之后重新对齐磁盘目录，空文件夹也留在侧栏
+    const diskNotebooks = await repo.loadNotebookDirs().catch(() => [] as string[]);
+    const notebooks = [...new Set([...get().notebooks, ...diskNotebooks])];
+    const notebooksChanged = notebooks.length !== get().notebooks.length;
+    if (notebooksChanged) localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
     const cur = get().current;
     const fresh = cur ? notes.find((n) => n.id === cur.id) : null;
     const fallback = fresh || (cur && get().view.type === 'trash' ? cur : notes[0] || null);
-    set({ notes, trash, current: fallback });
+    set({ notes, trash, current: fallback, ...(notebooksChanged ? { notebooks } : {}) });
     // 同步后任务也可能被别的设备改过，已加载过的库跟着刷新
     if (get().tasksLoaded) {
       const tasks = await repo.loadTasks();
@@ -1314,8 +1326,18 @@ export const useApp = create<AppState>((set, get) => ({
     const entry: Note = { ...snapshot, deletedAt: note.deletedAt, path: trashPath };
     const notes = get().notes.filter((n) => n.id !== id);
     const trash = [entry, ...get().trash];
+    // 删掉的是这个文件夹的最后一条笔记时，文件夹本身还在磁盘上，
+    // 要把它留在笔记本列表里，否则侧栏会立刻把它当成不存在。
+    const notebook = note.notebook || '';
+    const notebooks =
+      notebook && !get().notebooks.includes(notebook)
+        ? [...get().notebooks, notebook]
+        : get().notebooks;
+    if (notebooks !== get().notebooks) {
+      localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
+    }
     rebuild(notes);
-    set({ notes, trash, current: notes[0] || null });
+    set({ notes, trash, notebooks, current: notes[0] || null });
     get().markPending();
     get().toast('已移到回收站', 'info', {
       label: '撤销',
@@ -1451,8 +1473,17 @@ export const useApp = create<AppState>((set, get) => ({
     }
     cancelScheduledWrite(id);
     const wasCurrent = get().current?.id === id;
+    const source = note.notebook || '';
     const moved = await repo.moveNote(note, target);
     const notes = get().notes.map((n) => (n.id === id ? moved : n));
+    // 移走的可能是来源文件夹的最后一条笔记：空目录还在，别让它从侧栏消失
+    const notebooks =
+      source && !get().notebooks.includes(source)
+        ? [...get().notebooks, source]
+        : get().notebooks;
+    if (notebooks !== get().notebooks) {
+      localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
+    }
     rebuild(notes);
     const view = get().view;
     // 移动当前笔记时跟随它切到目标笔记本，避免编辑器突然跳到另一篇
@@ -1462,6 +1493,7 @@ export const useApp = create<AppState>((set, get) => ({
         : view;
     set({
       notes,
+      notebooks,
       current: wasCurrent ? moved : get().current,
       view: nextView,
       moveNoteId: null,
@@ -1593,6 +1625,8 @@ export const useApp = create<AppState>((set, get) => ({
       cancelScheduledWrite(n.id);
       await repo.deleteNote(n);
     }
+    // 同时清掉磁盘上的空目录，否则 refresh 时目录扫描会把它重新加回侧栏
+    await repo.removeNotebookDir(path).catch(() => {});
     const notebooks = get().notebooks.filter((n) => n !== path && !n.startsWith(`${path}/`));
     localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
     const order = orderAfterRemove(get().notebookOrder, path);

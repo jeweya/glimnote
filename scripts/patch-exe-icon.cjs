@@ -24,6 +24,8 @@ if (!fs.existsSync(icoPath)) throw new Error(`找不到图标文件：${icoPath}
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const version = String(pkg.version || '').trim() || '0.0.0';
+// Windows 的 FileVersion / ProductVersion 必须是纯数字，预发版去掉 -beta.1 后缀
+const numericVersion = (version.match(/\d+(?:\.\d+){0,3}/) || ['0.0.0'])[0];
 
 const exe = NtExecutable.from(fs.readFileSync(exePath), { ignoreCert: true });
 const res = NtExecutableResource.from(exe);
@@ -54,8 +56,8 @@ if (infos.length > 0) {
     InternalName: 'Glimnote',
     OriginalFilename: 'Glimnote.exe',
   });
-  info.setFileVersion(`${version}.0`, language.lang);
-  info.setProductVersion(`${version}.0`, language.lang);
+  info.setFileVersion(`${numericVersion}.0`, language.lang);
+  info.setProductVersion(`${numericVersion}.0`, language.lang);
   info.outputToResourceEntries(res.entries);
 }
 
