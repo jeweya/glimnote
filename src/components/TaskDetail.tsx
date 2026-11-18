@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Ban, Check, ChevronRight, Clock, Link2, MoreHorizontal, Plus, Repeat, SkipForward, Trash2, X } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  ChevronRight,
+  Clock,
+  Link2,
+  MoreHorizontal,
+  Plus,
+  Repeat,
+  SkipForward,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useApp } from '../store/app';
 import {
   NOTIFY_CHANNEL_LABEL,
@@ -17,6 +29,7 @@ import { notifyConfigured } from '../lib/taskNotify';
 import {
   cachedCloudPushConfig,
   readCloudPushConfig,
+  refreshCloudPushRegistration,
   type CloudPushConfig,
 } from '../lib/cloudPush';
 import { cn, fullDate, timeKey } from '../lib/utils';
@@ -26,6 +39,8 @@ import { TimePicker } from './TimePicker';
 import { NotePicker } from './NotePicker';
 import { TaskRepeatDialog } from './TaskRepeatDialog';
 import { ConfirmDialog } from './Confirm';
+import { CloudPushHelpDialog } from './CloudPushHelpDialog';
+import { requestNotifyCloudTab } from './NotifySettings';
 import { useT } from '../lib/i18n';
 
 export function TaskDetail() {
@@ -60,6 +75,8 @@ export function TaskDetail() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [repeatOpen, setRepeatOpen] = useState(false);
   const [cloudWarnOpen, setCloudWarnOpen] = useState(false);
+  const [cloudHelpOpen, setCloudHelpOpen] = useState(false);
+  const [cloudRefreshing, setCloudRefreshing] = useState(false);
   // Webhook 存在 localStorage，React 感知不到变化；设置里保存后靠这个事件刷新「未配置」标记
   const [, bumpNotifyPref] = useState(0);
   const [cloudCfg, setCloudCfg] = useState<CloudPushConfig>(() => cachedCloudPushConfig());
@@ -128,6 +145,31 @@ export function TaskDetail() {
     }
     setTagValue('');
     setTagInput(false);
+  };
+
+  /** 说明弹窗里的「刷新配置」：更新工作流内容后立刻强制同步，让平台重新登记定时任务 */
+  const refreshCloudPush = async () => {
+    if (cloudRefreshing) return;
+    setCloudRefreshing(true);
+    try {
+      const state = useApp.getState();
+      await refreshCloudPushRegistration(
+        state.tasksLoaded ? state.tasks : tasks,
+        gitCfg?.provider,
+        gitCfg ? `${gitCfg.owner}/${gitCfg.repo}` : '',
+      );
+      setCloudHelpOpen(false);
+      if (state.cfg && state.token) {
+        toast(tr('已更新工作流并开始同步，请关注下次推送（每天 {time}）', { time: cloudCfg.time }), 'success');
+        void state.syncNow(true);
+      } else {
+        toast(tr('工作流已更新，连接仓库并同步一次后才会生效'), 'warn');
+      }
+    } catch (e) {
+      toast((e as Error).message || tr('刷新失败，请稍后再试'), 'error');
+    } finally {
+      setCloudRefreshing(false);
+    }
   };
 
   const menuItems: (MenuEntry | 'sep')[] = [
@@ -351,9 +393,7 @@ export function TaskDetail() {
               </span>
             ) : (
               <button className="td-value" onClick={() => setRepeatOpen(true)} title={tr('设置循环规则与提醒时间')}>
-                <span className={cn(!task.repeat && 'muted')}>
-                  {task.repeat ? repeatSummary(task) : tr('不循环')}
-                </span>
+                <span className={cn(!task.repeat && 'muted')}>{task.repeat ? repeatSummary(task) : tr('不循环')}</span>
                 <Repeat size={14} />
               </button>
             )}
@@ -380,7 +420,9 @@ export function TaskDetail() {
                       aria-pressed={on}
                       title={
                         !configured
-                          ? tr('先到「设置 → 通知」配置{channel} Webhook', { channel: tr(NOTIFY_CHANNEL_LABEL[channel]) })
+                          ? tr('先到「设置 → 通知」配置{channel} Webhook', {
+                              channel: tr(NOTIFY_CHANNEL_LABEL[channel]),
+                            })
                           : on
                             ? tr('到点时不再推送到这个群')
                             : tr('到点时把提醒推送到这个群')
@@ -412,53 +454,64 @@ export function TaskDetail() {
           </div>
 
           {cloudSupported && (
-          <div className="td-field">
-            <span className="td-label">{tr('云端推送')}</span>
-            <div className="td-notify-wrap">
-              <div className="td-notify">
-                <button
-                  className={cn('td-notify-chip', task.cloudPush && 'on', !cloudCfg.enabled && 'off')}
-                  aria-pressed={Boolean(task.cloudPush)}
-                  title={
-                    !cloudCfg.enabled
-                      ? tr('先到「设置 → 通知 → 云端推送」开启')
-                      : task.cloudPush
-                        ? tr('不再参与云端推送')
-                        : tr('加入每天 {time} 的汇总消息', { time: cloudCfg.time })
-                  }
-                  onClick={() => {
-                    if (!cloudCfg.enabled) {
-                      setSettings(true, 'notify');
-                      return;
+            <div className="td-field">
+              <span className="td-label">{tr('云端推送')}</span>
+              <div className="td-notify-wrap">
+                <div className="td-notify">
+                  <button
+                    className={cn('td-notify-chip', task.cloudPush && 'on', !cloudCfg.enabled && 'off')}
+                    aria-pressed={Boolean(task.cloudPush)}
+                    title={
+                      !cloudCfg.enabled
+                        ? tr('先到「设置 → 通知 → 云端推送」开启')
+                        : task.cloudPush
+                          ? tr('不再参与云端推送')
+                          : tr('加入每天 {time} 的汇总消息', { time: cloudCfg.time })
                     }
-                    if (!task.cloudPush && !task.due) {
-                      toast(tr('先设截止日期，云端推送才有内容可推'), 'warn');
-                      return;
-                    }
-                    if (!task.cloudPush) {
-                      // 借用的是平台的免费定时任务，先把「可能延迟 / 失败 / 不是最新」说清楚
-                      setCloudWarnOpen(true);
-                      return;
-                    }
-                    patchTask(task.id, { cloudPush: undefined });
-                    markSaving();
-                  }}
-                >
-                  <span className="notify-dot ch-cloud" />
-                  {tr('加入云端推送')}
-                  {!cloudCfg.enabled && <span className="td-notify-tip">{tr('未开启')}</span>}
-                </button>
-              </div>
-              <div className="td-time-hint td-notify-hint">
-                {cloudCfg.enabled
-                  ? tr('每天 {time} 额外推送一份从该时刻起 {hours} 小时内到期的待办汇总。', {
-                      time: cloudCfg.time,
-                      hours: cloudCfg.windowHours,
-                    })
-                  : tr('在「设置 → 通知」开启后，每天固定时间把勾选的待办汇总发到群里。')}
+                    onClick={() => {
+                      if (!cloudCfg.enabled) {
+                        setSettings(true, 'notify');
+                        return;
+                      }
+                      if (!task.cloudPush && !task.due) {
+                        toast(tr('先设截止日期，云端推送才有内容可推'), 'warn');
+                        return;
+                      }
+                      if (!task.cloudPush) {
+                        // 借用的是平台的免费定时任务，先把「可能延迟 / 失败 / 不是最新」说清楚
+                        setCloudWarnOpen(true);
+                        return;
+                      }
+                      patchTask(task.id, { cloudPush: undefined });
+                      setCloudHelpOpen(false);
+                      markSaving();
+                    }}
+                  >
+                    <span className="notify-dot ch-cloud" />
+                    {tr('加入云端推送')}
+                    {!cloudCfg.enabled && <span className="td-notify-tip">{tr('未开启')}</span>}
+                  </button>
+                  {task.cloudPush && (
+                    <button
+                      type="button"
+                      className="td-cloud-help"
+                      title={tr('没收到推送时点这里，查看原因和刷新配置')}
+                      onClick={() => setCloudHelpOpen(true)}
+                    >
+                      {tr('推送失败？')}
+                    </button>
+                  )}
+                </div>
+                <div className="td-time-hint td-notify-hint">
+                  {cloudCfg.enabled
+                    ? tr('每天 {time} 额外推送一份从该时刻起 {hours} 小时内到期的待办汇总。', {
+                        time: cloudCfg.time,
+                        hours: cloudCfg.windowHours,
+                      })
+                    : tr('在「设置 → 通知」开启后，每天固定时间把勾选的待办汇总发到群里。')}
+                </div>
               </div>
             </div>
-          </div>
           )}
 
           <div className="td-field">
@@ -579,7 +632,9 @@ export function TaskDetail() {
       <div className="editor-foot td-foot">
         <span>{tr('创建于 {date}', { date: fullDate(task.created) })}</span>
         <span className="grow" />
-        <span className="saved">{saving ? tr('保存中…') : tr('已保存 {time}', { time: timeKey(new Date(task.updated)) })}</span>
+        <span className="saved">
+          {saving ? tr('保存中…') : tr('已保存 {time}', { time: timeKey(new Date(task.updated)) })}
+        </span>
         <span className="foot-tip">{tr('Markdown 文件')}</span>
       </div>
 
@@ -631,7 +686,9 @@ export function TaskDetail() {
         <ConfirmDialog
           danger
           title={tr('云端推送可能不稳定')}
-          desc={tr('它借用 Git 平台的免费定时任务：触发时间可能延迟，仓库长期没有活动时平台还可能暂停定时任务；摘要也只包含最后一次成功同步时的状态，不保证是最新的。请不要把它当作唯一提醒，重要任务仍以本机到点提醒为准。')}
+          desc={tr(
+            '它借用 Git 平台的免费定时任务：触发时间可能延迟，仓库长期没有活动时平台还可能暂停定时任务；摘要也只包含最后一次成功同步时的状态，不保证是最新的。请不要把它当作唯一提醒，重要任务仍以本机到点提醒为准。',
+          )}
           confirmLabel={tr('仍要加入')}
           onCancel={() => setCloudWarnOpen(false)}
           onConfirm={() => {
@@ -639,6 +696,24 @@ export function TaskDetail() {
             markSaving();
             setCloudWarnOpen(false);
           }}
+        />
+      )}
+
+      {cloudSupported && cloudHelpOpen && (
+        <CloudPushHelpDialog
+          cfg={cloudCfg}
+          busy={cloudRefreshing}
+          onRefresh={() => void refreshCloudPush()}
+          onEdit={() => {
+            setCloudHelpOpen(false);
+            requestNotifyCloudTab();
+            setSettings(true, 'notify');
+            // 设置页可能比这一下点击晚一拍挂载；等它挂上再补一条事件，确保停在「云端推送」
+            window.setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('glimnote:notify-tab', { detail: 'cloud' }));
+            }, 0);
+          }}
+          onClose={() => setCloudHelpOpen(false)}
         />
       )}
 

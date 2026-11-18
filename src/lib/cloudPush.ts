@@ -36,6 +36,11 @@ export interface CloudPushConfig {
   time: string;
   /** 从推送时间往后算多少小时；最小 24 */
   windowHours: number;
+  /**
+   * 手动「刷新配置」的时间戳。只写进工作流文件的注释里：
+   * 平台只有在工作流文件内容变化时才会重新登记定时任务，单纯同步不会产生提交。
+   */
+  refreshedAt?: string;
 }
 
 export const DEFAULT_CLOUD_PUSH: CloudPushConfig = {
@@ -67,6 +72,7 @@ export function normalizeCloudPush(value: unknown): CloudPushConfig {
     webhook: typeof raw.webhook === 'string' ? raw.webhook.trim() : '',
     time: typeof raw.time === 'string' && TIME_RE.test(raw.time) ? raw.time : CLOUD_PUSH_DEFAULT_TIME,
     windowHours: clampWindow(raw.windowHours),
+    refreshedAt: typeof raw.refreshedAt === 'string' && raw.refreshedAt.trim() ? raw.refreshedAt.trim() : undefined,
   };
 }
 
@@ -142,9 +148,21 @@ function cronLocal(time: string) {
   return `${m} ${h} * * *`;
 }
 
-function githubWorkflow(cron: string) {
+/** 本地时间戳，精确到秒；两次刷新才不会写出同一份内容 */
+function refreshStamp() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 手动刷新过才写这行；平时没有，内容保持稳定 */
+function stampLine(refreshedAt?: string) {
+  return refreshedAt ? `# 配置刷新：${refreshedAt}\n` : '';
+}
+
+function githubWorkflow(cron: string, refreshedAt?: string) {
   return `# 由萤光笔记自动生成：设置 → 通知 → 云端推送
-name: Glimnote Daily Push
+${stampLine(refreshedAt)}name: Glimnote Daily Push
 on:
   schedule:
     - cron: '${cron}'
@@ -168,11 +186,11 @@ jobs:
 `;
 }
 
-function gitcodeWorkflow(cron: string) {
+function gitcodeWorkflow(cron: string, refreshedAt?: string) {
   // GitCode 的校验比 GitHub 严格：任务和每一步都必须有纯英文 name，
   // 且只认内置的 checkout / setup-node，不认 actions/xxx@v4。
   return `# 由萤光笔记自动生成：设置 → 通知 → 云端推送
-name: Glimnote Daily Push
+${stampLine(refreshedAt)}name: Glimnote Daily Push
 on:
   schedule:
     - cron: '${cron}'
@@ -247,12 +265,9 @@ export async function writeCloudPushArtifacts(
     // 关掉时保留 push.json（Webhook、时间等下次开启还要用），只清掉会执行的流水线和摘要
     await writeIfChanged(CLOUD_PUSH_FILE, configFile);
     await Promise.all(
-      [
-        CLOUD_PUSH_DIGEST_FILE,
-        CLOUD_PUSH_SCRIPT_FILE,
-        CLOUD_PUSH_GITHUB_WORKFLOW,
-        CLOUD_PUSH_GITCODE_WORKFLOW,
-      ].map(removeQuietly),
+      [CLOUD_PUSH_DIGEST_FILE, CLOUD_PUSH_SCRIPT_FILE, CLOUD_PUSH_GITHUB_WORKFLOW, CLOUD_PUSH_GITCODE_WORKFLOW].map(
+        removeQuietly,
+      ),
     );
     return;
   }
@@ -261,10 +276,10 @@ export async function writeCloudPushArtifacts(
   await writeIfChanged(CLOUD_PUSH_SCRIPT_FILE, pushScriptSource);
   const cron = provider === 'gitcode' ? cronLocal(cfg.time) : cronOf(cfg.time);
   if (provider === 'github') {
-    await writeIfChanged(CLOUD_PUSH_GITHUB_WORKFLOW, githubWorkflow(cron));
+    await writeIfChanged(CLOUD_PUSH_GITHUB_WORKFLOW, githubWorkflow(cron, cfg.refreshedAt));
     await removeQuietly(CLOUD_PUSH_GITCODE_WORKFLOW);
   } else if (provider === 'gitcode') {
-    await writeIfChanged(CLOUD_PUSH_GITCODE_WORKFLOW, gitcodeWorkflow(cron));
+    await writeIfChanged(CLOUD_PUSH_GITCODE_WORKFLOW, gitcodeWorkflow(cron, cfg.refreshedAt));
     await removeQuietly(CLOUD_PUSH_GITHUB_WORKFLOW);
   } else {
     // Gitee 的流水线格式和触发方式都不同，v1 不自动生成，保留配置与摘要等用户手动接
@@ -282,15 +297,30 @@ export async function refreshCloudPushDigest(tasks: Task[], provider?: Provider,
   await writeCloudPushArtifacts(cfg, tasks, provider, repoFull);
 }
 
-export async function saveCloudPushConfig(
-  cfg: CloudPushConfig,
-  tasks: Task[],
-  provider?: Provider,
-  repoFull?: string,
-) {
-  cache = normalizeCloudPush(cfg);
+export async function saveCloudPushConfig(cfg: CloudPushConfig, tasks: Task[], provider?: Provider, repoFull?: string) {
+  // 设置页提交的是表单字段；保留上次「刷新配置」的时间戳，别让普通保存把它丢掉
+  cache = normalizeCloudPush({ ...(cache || {}), ...cfg });
   await writeCloudPushArtifacts(cache, tasks, provider, repoFull);
   window.dispatchEvent(new Event('glimnote:cloud-push-changed'));
+}
+
+/**
+ * 待办详情里的「刷新配置」：更新工作流注释里的时间戳，让文件内容真正变一次。
+ * GitCode / GitHub 都只在工作流文件变化时重新登记定时任务；
+ * 平台悄悄把定时任务丢了的场景下，这是不需要改推送时间的恢复办法。
+ * 写完后由调用方触发一次强制同步，把新文件提交上去。
+ */
+export async function refreshCloudPushRegistration(tasks: Task[], provider?: Provider, repoFull?: string) {
+  if (provider !== 'github' && provider !== 'gitcode') {
+    throw new Error('当前平台不支持云端推送');
+  }
+  const current = cache || (await readCloudPushConfig());
+  if (!current.enabled) throw new Error('云端推送还没开启');
+  const next = normalizeCloudPush({ ...current, refreshedAt: refreshStamp() });
+  cache = next;
+  await writeCloudPushArtifacts(next, tasks, provider, repoFull);
+  window.dispatchEvent(new Event('glimnote:cloud-push-changed'));
+  return next;
 }
 
 /** 设置页「测试」：直接往这个地址发一条样例，不经过 CI */

@@ -17,6 +17,12 @@ import { checkGitHubWorkflowPermission } from '../lib/git';
 import { cn } from '../lib/utils';
 import { useT } from '../lib/i18n';
 
+/** 待办详情的「修改配置」要求直接落在「云端推送」标签页；下次挂载时消费一次 */
+let pendingCloudTab = false;
+export function requestNotifyCloudTab() {
+  pendingCloudTab = true;
+}
+
 /**
  * 设置 → 通知：统一放三个群机器人的 Webhook。
  * 这里只负责「怎么发」，具体哪条待办发到哪些渠道，在待办里勾选。
@@ -28,7 +34,11 @@ export function NotifySettings() {
   const token = useApp((s) => s.token);
   const setSettings = useApp((s) => s.setSettings);
   const tr = useT();
-  const [tab, setTab] = useState<'local' | 'cloud'>('local');
+  const [tab, setTab] = useState<'local' | 'cloud'>(() => {
+    if (!pendingCloudTab) return 'local';
+    pendingCloudTab = false;
+    return 'cloud';
+  });
   const [hooks, setHooks] = useState<Record<TaskNotifyChannel, string>>(() => loadNotifyWebhooks());
   const [testing, setTesting] = useState<TaskNotifyChannel | null>(null);
   const [status, setStatus] = useState<Partial<Record<TaskNotifyChannel, { ok: boolean; text: string }>>>({});
@@ -50,6 +60,17 @@ export function NotifySettings() {
   useEffect(() => {
     if (!cloudSupported && tab === 'cloud') setTab('local');
   }, [cloudSupported, tab]);
+
+  // 待办详情的「修改配置」要直接落在「云端推送」：模块级标记负责首次挂载，
+  // 这里再监听一次事件，覆盖设置页已经开着、或热更新换了一份模块实例的情况
+  useEffect(() => {
+    const onJump = (e: Event) => {
+      const want = (e as CustomEvent).detail;
+      if (want === 'cloud' || want === 'local') setTab(want);
+    };
+    window.addEventListener('glimnote:notify-tab', onJump);
+    return () => window.removeEventListener('glimnote:notify-tab', onJump);
+  }, []);
 
   useEffect(() => {
     void readCloudPushConfig();
@@ -307,214 +328,221 @@ export function NotifySettings() {
         </>
       )}
 
-      {cloudSupported && activeTab === 'cloud' && (supportedPlatform ? (
-        <>
-          <div className="ai-intro">
-            <Cloud size={16} strokeWidth={1.75} />
-            <div>
-              {tr(
-                '由仓库的定时流水线每天汇总推送一次，电脑没开、应用没运行也能收到。只推送在待办详情里勾了「云端推送」的任务；勾选不会停掉本机的到点提醒和群通知。配置会写进仓库的 .glimnote/ 目录，所以仓库必须是私有的。',
-              )}
-            </div>
-          </div>
-
-          <div className="notify-channel cloud-push-card">
-            <div className="notify-head">
-              <span className="notify-name">{tr('启用每日汇总')}</span>
-              {cloudChecking ? (
-                <span className="notify-badge">{tr('检查中')}</span>
-              ) : cloud.enabled ? (
-                <span className="notify-badge">{tr('已开启')}</span>
-              ) : null}
-              <span className="grow" />
-              <button
-                className={cn('switch', cloud.enabled && 'on')}
-                role="switch"
-                aria-checked={cloud.enabled}
-                title={cloud.enabled ? tr('关闭云端推送') : tr('开启云端推送')}
-                disabled={cloudSaving}
-                onClick={() => {
-                  const next = { ...cloud, enabled: !cloud.enabled };
-                  // 先让开关动起来，再去查权限；否则弱网下点完像卡住
-                  setCloud(next);
-                  setCloudStatus(null);
-                  void saveCloud(next).then((ok) => {
-                    if (!ok) setCloud(cachedCloudPushConfig());
-                  });
-                }}
-              />
-            </div>
-
-            {cloudChecking && (
-              <div className="notify-status">
-                <Loader2 size={13} className="spin" />
-                {tr('正在检查令牌权限，最多几秒…')}
-              </div>
-            )}
-
-            <div className="cloud-push-grid">
-              <label className="cloud-push-field">
-                <span>{tr('机器人')}</span>
-                <div className="segment td-seg">
-                  {NOTIFY_CHANNELS.map((channel) => (
-                    <button
-                      key={channel.id}
-                      type="button"
-                      className={cn(cloud.channel === channel.id && 'on')}
-                      onClick={() => setCloud((prev) => ({ ...prev, channel: channel.id }))}
-                    >
-                      {tr(channel.label)}
-                    </button>
-                  ))}
-                </div>
-              </label>
-              <label className="cloud-push-field">
-                <span>{tr('每天推送时间')}</span>
-                <input
-                  className="input"
-                  type="time"
-                  value={cloud.time}
-                  onChange={(e) => setCloud((prev) => ({ ...prev, time: e.target.value }))}
-                />
-              </label>
-              <label className="cloud-push-field">
-                <span>{tr('推送窗口（小时）')}</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={CLOUD_PUSH_WINDOW_MIN}
-                  max={CLOUD_PUSH_WINDOW_MAX}
-                  step={1}
-                  value={cloud.windowHours}
-                  onChange={(e) =>
-                    setCloud((prev) => ({
-                      ...prev,
-                      windowHours: Math.min(
-                        CLOUD_PUSH_WINDOW_MAX,
-                        Math.max(CLOUD_PUSH_WINDOW_MIN, Number(e.target.value) || CLOUD_PUSH_WINDOW_MIN),
-                      ),
-                    }))
-                  }
-                />
-              </label>
-            </div>
-
-            <div className="set-desc">
-              {tr(
-                '窗口从推送时间往后算，最小 24 小时；设为 48 小时时，同一条待办可能连续两天都出现在汇总里。时间按北京时间计算。',
-              )}
-            </div>
-
-            <div className="notify-input-row">
-              <input
-                className="input"
-                value={cloud.webhook}
-                placeholder={NOTIFY_CHANNELS.find((c) => c.id === cloud.channel)?.placeholder || 'https://…'}
-                spellCheck={false}
-                autoComplete="off"
-                aria-label={tr('{label} Webhook 地址', { label: channelLabel(cloud.channel) })}
-                onChange={(e) => {
-                  setCloud((prev) => ({ ...prev, webhook: e.target.value }));
-                  setCloudStatus(null);
-                }}
-              />
-              <button className="btn btn-secondary" onClick={() => void testCloud()} disabled={cloudTesting}>
-                {cloudTesting ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-                {tr('测试')}
-              </button>
-            </div>
-
-            {cloudStatus && (
-              <div className={cn('notify-status', cloudStatus.ok ? 'ok' : 'bad')}>
-                {cloudStatus.ok ? <Check size={13} /> : <X size={13} />}
-                {cloudStatus.text}
-              </div>
-            )}
-
-            {cloudNeedsToken && (
-              <button className="btn btn-secondary" onClick={() => setSettings(true, 'sync')}>
-                <KeyRound size={14} /> {tr('去同步页更新令牌')}
-              </button>
-            )}
-
-            <div className="td-time-hint td-notify-hint">
-              {cloud.enabled
-                ? tr('每天 {time}（北京时间）推送 {hours} 小时内到期的待办；推送前会自动同步一次。', {
-                    time: cloud.time,
-                    hours: cloud.windowHours,
-                  })
-                : tr('开启后，仓库里会自动生成定时工作流和推送脚本。')}
-            </div>
-
-            <div className="cloud-risk">
-              <AlertTriangle size={16} strokeWidth={1.75} />
+      {cloudSupported &&
+        activeTab === 'cloud' &&
+        (supportedPlatform ? (
+          <>
+            <div className="ai-intro">
+              <Cloud size={16} strokeWidth={1.75} />
               <div>
-                <b>{tr('使用前请了解这些限制')}</b>
-                <p>
-                  {tr(
-                    '依赖 Git 平台的免费定时任务：消息可能延迟或发送失败，摘要也可能不是最新。请不要把它当作唯一提醒，重要任务仍以本机到点提醒为准。',
-                  )}
-                </p>
-                <p>
-                  {githubCloud
-                    ? tr(
-                        '保存后会提交到 GitHub 仓库：.glimnote/push.json、digest.json、push.mjs 和 .github/workflows/glimnote-push.yml。工作流默认只认主分支，定时任务可能比设定时间晚几分钟启动；仓库长期没有活动时，GitHub 也可能暂停定时任务，同步一次即可恢复。',
-                      )
-                    : tr(
-                        '保存后会提交到 GitCode 仓库：.glimnote/push.json、digest.json、push.mjs 和 .gitcode/workflows/glimnote-push.yml。流水线默认只认主分支，定时任务可能比设定时间晚几分钟启动。',
-                      )}
-                </p>
+                {tr(
+                  '由仓库的定时流水线每天汇总推送一次，电脑没开、应用没运行也能收到。只推送在待办详情里勾了「云端推送」的任务；勾选不会停掉本机的到点提醒和群通知。配置会写进仓库的 .glimnote/ 目录，所以仓库必须是私有的。',
+                )}
               </div>
             </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="ai-intro">
-            <Cloud size={16} strokeWidth={1.75} />
-            <div>
-              {tr(
-                '这个工作区连接的不是 GitHub，但较早的版本允许在这里开启云端推送，仓库里的定时任务还在往群里发消息。当前版本不再支持管理它，不过可以在这里关掉；关闭后会同步删除仓库里的工作流、摘要和发送脚本。',
+
+            <div className="notify-channel cloud-push-card">
+              <div className="notify-head">
+                <span className="notify-name">{tr('启用每日汇总')}</span>
+                {cloudChecking ? (
+                  <span className="notify-badge">{tr('检查中')}</span>
+                ) : cloud.enabled ? (
+                  <span className="notify-badge">{tr('已开启')}</span>
+                ) : null}
+                <span className="grow" />
+                <button
+                  className={cn('switch', cloud.enabled && 'on')}
+                  role="switch"
+                  aria-checked={cloud.enabled}
+                  title={cloud.enabled ? tr('关闭云端推送') : tr('开启云端推送')}
+                  disabled={cloudSaving}
+                  onClick={() => {
+                    const next = { ...cloud, enabled: !cloud.enabled };
+                    // 先让开关动起来，再去查权限；否则弱网下点完像卡住
+                    setCloud(next);
+                    setCloudStatus(null);
+                    void saveCloud(next).then((ok) => {
+                      if (!ok) setCloud(cachedCloudPushConfig());
+                    });
+                  }}
+                />
+              </div>
+
+              {cloudChecking && (
+                <div className="notify-status">
+                  <Loader2 size={13} className="spin" />
+                  {tr('正在检查令牌权限，最多几秒…')}
+                </div>
+              )}
+
+              <div className="cloud-push-grid">
+                <label className="cloud-push-field">
+                  <span>{tr('机器人')}</span>
+                  <div className="segment td-seg">
+                    {NOTIFY_CHANNELS.map((channel) => (
+                      <button
+                        key={channel.id}
+                        type="button"
+                        className={cn(cloud.channel === channel.id && 'on')}
+                        onClick={() => setCloud((prev) => ({ ...prev, channel: channel.id }))}
+                      >
+                        {tr(channel.label)}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+                <label className="cloud-push-field">
+                  <span>{tr('每天推送时间')}</span>
+                  <input
+                    className="input"
+                    type="time"
+                    value={cloud.time}
+                    onChange={(e) => setCloud((prev) => ({ ...prev, time: e.target.value }))}
+                  />
+                </label>
+                <label className="cloud-push-field">
+                  <span>{tr('推送窗口（小时）')}</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={CLOUD_PUSH_WINDOW_MIN}
+                    max={CLOUD_PUSH_WINDOW_MAX}
+                    step={1}
+                    value={cloud.windowHours}
+                    onChange={(e) =>
+                      setCloud((prev) => ({
+                        ...prev,
+                        windowHours: Math.min(
+                          CLOUD_PUSH_WINDOW_MAX,
+                          Math.max(CLOUD_PUSH_WINDOW_MIN, Number(e.target.value) || CLOUD_PUSH_WINDOW_MIN),
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="set-desc">
+                {tr(
+                  '窗口从推送时间往后算，最小 24 小时；设为 48 小时时，同一条待办可能连续两天都出现在汇总里。时间按北京时间计算。',
+                )}
+              </div>
+
+              <div className="notify-input-row">
+                <input
+                  className="input"
+                  value={cloud.webhook}
+                  placeholder={NOTIFY_CHANNELS.find((c) => c.id === cloud.channel)?.placeholder || 'https://…'}
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label={tr('{label} Webhook 地址', { label: channelLabel(cloud.channel) })}
+                  onChange={(e) => {
+                    setCloud((prev) => ({ ...prev, webhook: e.target.value }));
+                    setCloudStatus(null);
+                  }}
+                />
+                <button className="btn btn-secondary" onClick={() => void testCloud()} disabled={cloudTesting}>
+                  {cloudTesting ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+                  {tr('测试')}
+                </button>
+              </div>
+
+              {cloudStatus && (
+                <div className={cn('notify-status', cloudStatus.ok ? 'ok' : 'bad')}>
+                  {cloudStatus.ok ? <Check size={13} /> : <X size={13} />}
+                  {cloudStatus.text}
+                </div>
+              )}
+
+              {cloudNeedsToken && (
+                <button className="btn btn-secondary" onClick={() => setSettings(true, 'sync')}>
+                  <KeyRound size={14} /> {tr('去同步页更新令牌')}
+                </button>
+              )}
+
+              <div className="td-time-hint td-notify-hint">
+                {cloud.enabled
+                  ? tr('每天 {time}（北京时间）推送 {hours} 小时内到期的待办；推送前会自动同步一次。', {
+                      time: cloud.time,
+                      hours: cloud.windowHours,
+                    })
+                  : tr('开启后，仓库里会自动生成定时工作流和推送脚本。')}
+              </div>
+
+              <div className="cloud-risk">
+                <AlertTriangle size={16} strokeWidth={1.75} />
+                <div>
+                  <b>{tr('使用前请了解这些限制')}</b>
+                  <p>
+                    {tr(
+                      '依赖 Git 平台的免费定时任务：消息可能延迟或发送失败，摘要也可能不是最新。请不要把它当作唯一提醒，重要任务仍以本机到点提醒为准。',
+                    )}
+                  </p>
+                  <p>
+                    {githubCloud
+                      ? tr(
+                          '保存后会提交到 GitHub 仓库：.glimnote/push.json、digest.json、push.mjs 和 .github/workflows/glimnote-push.yml。工作流默认只认主分支，定时任务可能比设定时间晚几分钟启动；仓库长期没有活动时，GitHub 也可能暂停定时任务，同步一次即可恢复。',
+                        )
+                      : tr(
+                          '保存后会提交到 GitCode 仓库：.glimnote/push.json、digest.json、push.mjs 和 .gitcode/workflows/glimnote-push.yml。流水线默认只认主分支，定时任务可能比设定时间晚几分钟启动。',
+                        )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="ai-intro">
+              <Cloud size={16} strokeWidth={1.75} />
+              <div>
+                {tr(
+                  '这个工作区连接的不是 GitHub，但较早的版本允许在这里开启云端推送，仓库里的定时任务还在往群里发消息。当前版本不再支持管理它，不过可以在这里关掉；关闭后会同步删除仓库里的工作流、摘要和发送脚本。',
+                )}
+              </div>
+            </div>
+
+            <div className="notify-channel cloud-push-card">
+              <div className="notify-head">
+                <span className="notify-name">{tr('云端推送（旧配置）')}</span>
+                <span className="notify-badge">{tr('运行中')}</span>
+              </div>
+              <div className="set-desc">
+                {tr(
+                  '仓库：{repo} · 配置时间 {time}（北京时间）。同一群里每天收到两条汇总，通常就是有两个仓库都开着云端推送，这里是其中一个。',
+                  {
+                    repo: [gitCfg?.owner, gitCfg?.repo].filter(Boolean).join('/') || tr('未知仓库'),
+                    time: cloud.time,
+                  },
+                )}
+              </div>
+
+              <div className="td-time-hint td-notify-hint">
+                {tr(
+                  '关闭后需要同步一次，删除才会提交到远端；如果同步失败，也可以到仓库网页手动删除 .gitcode/workflows/glimnote-push.yml。',
+                )}
+              </div>
+
+              <div className="sync-warn-actions">
+                <button
+                  className="btn btn-danger"
+                  onClick={() => void saveCloud({ ...cloud, enabled: false })}
+                  disabled={cloudSaving}
+                >
+                  {cloudSaving ? <Loader2 size={14} className="spin" /> : <X size={14} />}
+                  {tr('关闭并删除工作流')}
+                </button>
+              </div>
+
+              {cloudStatus && (
+                <div className={cn('notify-status', cloudStatus.ok ? 'ok' : 'bad')}>
+                  {cloudStatus.ok ? <Check size={13} /> : <X size={13} />}
+                  {cloudStatus.text}
+                </div>
               )}
             </div>
-          </div>
-
-          <div className="notify-channel cloud-push-card">
-            <div className="notify-head">
-              <span className="notify-name">{tr('云端推送（旧配置）')}</span>
-              <span className="notify-badge">{tr('运行中')}</span>
-            </div>
-            <div className="set-desc">
-              {tr('仓库：{repo} · 配置时间 {time}（北京时间）。同一群里每天收到两条汇总，通常就是有两个仓库都开着云端推送，这里是其中一个。', {
-                repo: [gitCfg?.owner, gitCfg?.repo].filter(Boolean).join('/') || tr('未知仓库'),
-                time: cloud.time,
-              })}
-            </div>
-
-            <div className="td-time-hint td-notify-hint">
-              {tr('关闭后需要同步一次，删除才会提交到远端；如果同步失败，也可以到仓库网页手动删除 .gitcode/workflows/glimnote-push.yml。')}
-            </div>
-
-            <div className="sync-warn-actions">
-              <button
-                className="btn btn-danger"
-                onClick={() => void saveCloud({ ...cloud, enabled: false })}
-                disabled={cloudSaving}
-              >
-                {cloudSaving ? <Loader2 size={14} className="spin" /> : <X size={14} />}
-                {tr('关闭并删除工作流')}
-              </button>
-            </div>
-
-            {cloudStatus && (
-              <div className={cn('notify-status', cloudStatus.ok ? 'ok' : 'bad')}>
-                {cloudStatus.ok ? <Check size={13} /> : <X size={13} />}
-                {cloudStatus.text}
-              </div>
-            )}
-          </div>
-        </>
-      ))}
+          </>
+        ))}
 
       <div className="token-warn">
         {tr(

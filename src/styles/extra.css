@@ -5719,6 +5719,62 @@ button.ext-link {
   background: var(--line);
 }
 
+/* 点中正文链接后的查看 / 编辑条 */
+.rich-link-pop {
+  max-width: 420px;
+  padding: 4px 5px;
+  gap: 1px;
+}
+.rich-link-url {
+  max-width: 210px;
+  padding: 0 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.rich-link-form {
+  display: grid;
+  gap: 6px;
+  width: 300px;
+  padding: 3px 3px 2px;
+}
+.rich-link-form label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.rich-link-form input {
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--text-1);
+  outline: none;
+}
+.rich-link-form input:focus {
+  border-color: var(--accent-border);
+}
+.rich-link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+.rich-objbar .rich-link-actions button {
+  height: 24px;
+  padding: 0 10px;
+  background: var(--surface-2);
+}
+.rich-objbar .rich-link-actions button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* 富文本查找条 */
 .rich-find {
   position: absolute;
@@ -6861,6 +6917,56 @@ button.ext-link {
 .td-notify-tip {
   color: var(--text-3);
   font-size: var(--fs-2xs);
+}
+/* 「加入云端推送」开启后的说明入口：一行带色小字，比问号更容易被看见 */
+.td-cloud-help {
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--warning);
+  font-size: var(--fs-2xs);
+  line-height: 1;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  transition: color var(--dur-micro);
+}
+.td-cloud-help:hover {
+  color: var(--text-1);
+  text-decoration-style: solid;
+}
+/* 云端推送说明弹窗：多段文字比普通确认框长，稍微放宽并拉开段距 */
+.cloud-help-modal {
+  width: 460px;
+}
+.cloud-help-body {
+  color: var(--text-2);
+}
+.cloud-help-body p {
+  margin: 0 0 9px;
+}
+.cloud-help-body p:last-child {
+  margin-bottom: 0;
+}
+.cloud-help-meta {
+  color: var(--text-3);
+}
+/* 说明弹窗里跳到设置改推送时间/窗口的小入口 */
+.cloud-help-edit {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+.cloud-help-edit:hover {
+  text-decoration: underline;
 }
 .notify-dot {
   width: 6px;

@@ -1,5 +1,19 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowDown, ArrowUp, Eye, Minus, Plus, RotateCcw, Search, Table2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  ExternalLink,
+  Eye,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Table2,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { Editor as TiptapEditor } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
@@ -28,6 +42,7 @@ import { hydrateAssetImages } from '../lib/rich/assetUrls';
 import { sanitizePastedHtml, sanitizePastedText } from '../lib/rich/sanitize';
 import { htmlToPlainText, plainTextToHtml } from '../lib/rich/formattedPaste';
 import { parseImageAlt, withImageWidth } from '../lib/assets';
+import { openExternal } from '../lib/openExternal';
 import { t, useT } from '../lib/i18n';
 
 interface Props {
@@ -279,6 +294,14 @@ export function RichEditor({
   const [tableChip, setTableChip] = useState<{ pos: number; left: number; top: number } | null>(null);
   /** 点中图片后浮在图片上方的宽度调节条 */
   const [imageBar, setImageBar] = useState<{ pos: number; left: number; top: number; width: number } | null>(null);
+  /** 点中链接后浮出的查看 / 编辑条：可直接打开、复制、改地址或去掉链接 */
+  const [linkPop, setLinkPop] = useState<{
+    href: string;
+    text: string;
+    left: number;
+    top: number;
+    editing: boolean;
+  } | null>(null);
 
   noteRef.current = note;
   changeRef.current = onChange;
@@ -362,6 +385,71 @@ export function RichEditor({
     if (found < 0) setImageBar(null);
     else placeImageBar(found);
   }
+
+  /**
+   * 点中链接：光标已经落在链接文字里（TipTap 关闭了 openOnClick），
+   * 这里只负责把查看 / 编辑条贴在链接下方。位置按链接的实际宽度夹住，
+   * 免得靠近右边框时浮层伸出编辑区外。
+   */
+  function openLinkPop(anchor: HTMLAnchorElement) {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const href = anchor.getAttribute('href') || '';
+    if (!href) return;
+    const rect = anchor.getBoundingClientRect();
+    const box = wrap.getBoundingClientRect();
+    const width = 340;
+    const left = Math.max(4, Math.min(rect.left - box.left, box.width - width - 8));
+    // 下面放得下就放下面，靠近底部时翻到链接上方
+    const below = rect.bottom - box.top + 8;
+    const top = below + 150 > box.height ? Math.max(4, rect.top - box.top - 46) : below;
+    setLinkPop({ href, text: anchor.textContent || '', left, top, editing: false });
+    setImageBar(null);
+    setTableChip(null);
+  }
+
+  /** 保存链接修改：文字没变只改地址，文字改了就连同链接一起替换 */
+  const applyLinkEdit = () => {
+    const editor = editorRef.current;
+    if (!editor || !linkPop) return;
+    const href = linkPop.href.trim() || 'https://';
+    const text = linkPop.text.trim() || t('链接文字');
+    editor.chain().focus().extendMarkRange('link').run();
+    const { from, to } = editor.state.selection;
+    const selected = editor.state.doc.textBetween(from, to, '\n', ' ');
+    if (selected === text) {
+      editor.chain().focus().setLink({ href }).run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from, to }, { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] })
+        .run();
+    }
+    setLinkPop(null);
+  };
+
+  const removeLink = () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    setLinkPop(null);
+  };
+
+  const openLinkTarget = () => {
+    if (!linkPop) return;
+    void openExternal(linkPop.href).catch((err) => {
+      noticeRef.current?.(err instanceof Error ? err.message : String(err));
+    });
+  };
+
+  const copyLink = () => {
+    if (!linkPop) return;
+    void navigator.clipboard
+      .writeText(linkPop.href)
+      .then(() => noticeRef.current?.(t('链接已复制')))
+      .catch(() => noticeRef.current?.(t('没能写入剪贴板，请手动选中复制')));
+  };
 
   /** 打开表格弹窗：数据从当前表格节点读，位置交给桥接层替换 */
   const openTableModal = () => {
@@ -678,11 +766,19 @@ export function RichEditor({
         if (title) wikiRef.current?.(title);
         return;
       }
+      const anchor = target?.closest<HTMLAnchorElement>('a[href]');
+      if (anchor && dom.contains(anchor)) {
+        // 不拦的话 Electron 窗口会直接跳到网页，编辑中的笔记就没了
+        event.preventDefault();
+        openLinkPop(anchor);
+        return;
+      }
       if (target?.tagName === 'IMG') {
         openImageBar(target as HTMLImageElement);
         return;
       }
       setImageBar(null);
+      setLinkPop(null);
     };
 
     const onDoubleClick = (event: MouseEvent) => {
@@ -703,6 +799,7 @@ export function RichEditor({
     let scrollTimer = 0;
     const onScroll = () => {
       setImageBar(null);
+      setLinkPop(null);
       if (scrollTimer) window.clearTimeout(scrollTimer);
       scrollTimer = window.setTimeout(() => {
         scrollTimer = 0;
@@ -713,6 +810,7 @@ export function RichEditor({
     const onResize = () => {
       setImageBar(null);
       setTableChip(null);
+      setLinkPop(null);
     };
     const scroller = dom.closest('.rich-scroll');
     scroller?.addEventListener('scroll', onScroll, { passive: true });
@@ -727,6 +825,7 @@ export function RichEditor({
       if (scrollTimer) window.clearTimeout(scrollTimer);
       setTableChip(null);
       setImageBar(null);
+      setLinkPop(null);
       // 先销毁再清 ref：onDestroy 里最后一次落盘还要用 editorRef 取 Markdown
       edit.destroy();
       editorRef.current = null;
@@ -748,6 +847,19 @@ export function RichEditor({
       scroller?.removeEventListener('scroll', close);
     };
   }, [menu]);
+
+  // 链接浮层：点别处（包括正文空白 / 另一条链接）就收起。
+  // 捕获阶段先关，再让正文的 click 决定要不要给新链接重新弹出。
+  useEffect(() => {
+    if (!linkPop) return;
+    const onDown = (event: PointerEvent) => {
+      const el = event.target as HTMLElement | null;
+      if (el?.closest('.rich-link-pop')) return;
+      setLinkPop(null);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [linkPop]);
 
   useEffect(() => {
     const open = () => setFindOpen(true);
@@ -1020,6 +1132,12 @@ export function RichEditor({
         setImageBar(null);
         return;
       }
+      if (event.key === 'Escape' && linkPop) {
+        event.preventDefault();
+        event.stopPropagation();
+        setLinkPop(null);
+        return;
+      }
     }
     const state = menuRef.current;
     if (!state || event.nativeEvent.isComposing) return;
@@ -1170,6 +1288,108 @@ export function RichEditor({
           >
             <Eye size={14} />
           </button>
+        </div>
+      )}
+      {linkPop && (
+        <div
+          className="rich-objbar rich-link-pop"
+          style={{ left: linkPop.left, top: linkPop.top }}
+          role="dialog"
+          aria-label={tr('链接')}
+        >
+          {linkPop.editing ? (
+            <div className="rich-link-form">
+              <label>
+                <span>{tr('显示文字')}</span>
+                <input
+                  autoFocus
+                  value={linkPop.text}
+                  placeholder={tr('链接文字')}
+                  onChange={(event) => setLinkPop((prev) => (prev ? { ...prev, text: event.target.value } : prev))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      applyLinkEdit();
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                <span>{tr('链接地址')}</span>
+                <input
+                  value={linkPop.href}
+                  placeholder="https://"
+                  onChange={(event) => setLinkPop((prev) => (prev ? { ...prev, href: event.target.value } : prev))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      applyLinkEdit();
+                    }
+                  }}
+                />
+              </label>
+              <div className="rich-link-actions">
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setLinkPop((prev) => (prev ? { ...prev, editing: false } : prev))}
+                >
+                  {tr('取消')}
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={applyLinkEdit}
+                >
+                  {tr('保存')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <span className="rich-link-url" title={linkPop.href}>
+                {linkPop.href}
+              </span>
+              <span className="rich-objbar-sep" />
+              <button
+                type="button"
+                title={
+                  /^https?:/i.test(linkPop.href) ? tr('在浏览器里打开') : tr('这个地址不是有效的 http / https 网址')
+                }
+                disabled={!/^https?:/i.test(linkPop.href)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openLinkTarget}
+              >
+                <ExternalLink size={13} /> {tr('打开')}
+              </button>
+              <button
+                type="button"
+                title={tr('复制链接')}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={copyLink}
+              >
+                <Copy size={13} /> {tr('复制')}
+              </button>
+              <button
+                type="button"
+                title={tr('编辑链接')}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setLinkPop((prev) => (prev ? { ...prev, editing: true } : prev))}
+              >
+                <Pencil size={13} /> {tr('编辑')}
+              </button>
+              <button
+                type="button"
+                title={tr('移除链接')}
+                aria-label={tr('移除链接')}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={removeLink}
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
         </div>
       )}
       {menu && (
