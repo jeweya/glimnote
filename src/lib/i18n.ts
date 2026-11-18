@@ -2248,6 +2248,7 @@ const EN: Record<string, string> = {
   '桌面版把启动、同步、连接和界面报错按天写进本机文件，最多留 7 天。遇到问题时点「打开文件夹」，把当天那份 .log 发过来就行。':
     'The desktop app writes startup, sync, connection, and UI errors to local files by day, kept for 7 days. If you hit a problem, tap "Open folder" and send the .log file for that day.',
   检查更新: 'Check for updates',
+  预发版本: 'Prerelease',
   模型: 'Model',
   模型已响应: 'Model responded',
   '正在下载…': 'Downloading…',

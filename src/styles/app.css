@@ -1857,6 +1857,24 @@ input:focus-visible,
   color: var(--accent);
   line-height: 1.5;
 }
+/* 检查到的 Release 是预发版本：徽标 + 实际命中的 tag，方便确认类型识别正确 */
+.set-update-pre {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 5px;
+}
+.set-update-pre .tag-soft {
+  margin-left: 0;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.set-update-tag {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+}
 @media (max-width: 620px) {
   .set-update-actions {
     flex-wrap: wrap;

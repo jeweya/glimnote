@@ -2892,6 +2892,7 @@ async function checkUpdate(options = {}) {
           message: `发现${feed.prerelease ? '预发版本' : '新版本'} ${latest}，但${reason}，无法自动下载。请打开发布页手动下载安装包。`,
           version: latest,
           prerelease: feed.prerelease,
+          sourceTag: feed.tag,
           manual: true,
           url: RELEASES_PAGE,
         };
@@ -2899,6 +2900,9 @@ async function checkUpdate(options = {}) {
       return {
         status: 'latest',
         message: `已是最新版本 ${app.getVersion()}（${reason}，本次为手动检查）`,
+        // 命中的就是预发版时不加提示会让人以为「没识别出来」，把标记和 tag 一起带回渲染层
+        prerelease: feed.prerelease,
+        sourceTag: feed.tag,
       };
     } catch (e) {
       logFile.write('app', 'warn', `更新组件缺失且查询发布页失败：${String((e && e.message) || e).slice(0, 200)}`);
@@ -2932,13 +2936,20 @@ async function checkUpdate(options = {}) {
           : `发现${pre ? '预发版本' : '新版本'} ${latest}`,
         version: latest,
         prerelease: pre,
+        sourceTag: feed.tag,
         downloaded,
       };
     }
     lastAvailableVersion = '';
     updateDownloaded = false;
     updateDownloadedVersion = '';
-    return { status: 'latest', message: `已是最新版本 ${app.getVersion()}` };
+    // 「已是最新」也把来源带回去：手动检查命中预发版时，界面上能直接看出是预发版本
+    return {
+      status: 'latest',
+      message: `已是最新版本 ${app.getVersion()}`,
+      prerelease: feed.prerelease,
+      sourceTag: feed.tag,
+    };
   } catch (e) {
     logFile.write('app', 'warn', `检查更新失败：${String((e && e.message) || e).slice(0, 200)}`);
     return { status: 'error', message: friendlyUpdateError(e, '检查更新失败，请稍后重试。') };

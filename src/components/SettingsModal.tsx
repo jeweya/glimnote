@@ -2913,6 +2913,13 @@ export function SettingsModal() {
                         ? update.message
                         : t('安装版会从 GitCode Releases 检查新版本；下载完成后可以重启安装，网页版刷新页面即是最新。')}
                     </div>
+                    {/* 检查到预发版本时标出来：一眼能看出主进程有没有正确识别 Release 的预发标记 */}
+                    {update?.prerelease && (
+                      <div className="set-update-pre">
+                        <span className="tag-soft">{t('预发版本')}</span>
+                        {update.sourceTag ? <span className="set-update-tag">{update.sourceTag}</span> : null}
+                      </div>
+                    )}
                     {updateProgress && updateProgress.state === 'downloading' && (
                       <div className="set-update-progress">
                         <div

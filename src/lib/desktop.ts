@@ -8,6 +8,10 @@ export interface UpdateResult {
   manual?: boolean;
   /** 手动下载时要打开的页面 */
   url?: string;
+  /** 这次命中的 Release 在 GitCode 上被标成预发版本（或版本号本身带 -beta 之类的后缀） */
+  prerelease?: boolean;
+  /** 这次检查实际使用的 Release tag，调试时用来确认拿到的是哪一版 */
+  sourceTag?: string;
 }
 
 /** 主进程推送的更新进度：下载百分比、下载完成、失败 */
