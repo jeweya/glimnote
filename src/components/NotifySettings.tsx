@@ -51,9 +51,9 @@ export function NotifySettings() {
   // 预检发现令牌缺权限时，给一个直接跳到「同步 → 更新授权令牌」的入口
   const [cloudNeedsToken, setCloudNeedsToken] = useState(false);
 
-  // GitHub 和 GitCode 都有可用的定时流水线；其他平台如果历史上开过，入口也保留，方便关掉旧配置。
-  const githubCloud = gitCfg?.provider === 'github';
-  const supportedPlatform = githubCloud || gitCfg?.provider === 'gitcode';
+  // 云端推送只支持 GitHub；GitCode 的定时任务会悄悄丢注册，普通平台不再显示入口。
+  // 历史上开过的旧配置仍保留入口，方便关闭并删除遗留工作流。
+  const supportedPlatform = gitCfg?.provider === 'github';
   const cloudSupported = supportedPlatform || cloud.enabled;
   const activeTab = cloudSupported ? tab : 'local';
 
@@ -127,6 +127,11 @@ export function NotifySettings() {
     }
     if (webhook && !/^https?:\/\//i.test(webhook)) {
       say(tr('Webhook 地址要以 http:// 或 https:// 开头'), 'warn');
+      return false;
+    }
+    // 关闭旧配置要放行，开启只允许 GitHub 仓库
+    if (next.enabled && gitCfg?.provider !== 'github') {
+      say(tr('云端推送目前只支持 GitHub 仓库'), 'warn');
       return false;
     }
     setCloudSaving(true);
@@ -479,13 +484,9 @@ export function NotifySettings() {
                     )}
                   </p>
                   <p>
-                    {githubCloud
-                      ? tr(
-                          '保存后会提交到 GitHub 仓库：.glimnote/push.json、digest.json、push.mjs 和 .github/workflows/glimnote-push.yml。工作流默认只认主分支，定时任务可能比设定时间晚几分钟启动；仓库长期没有活动时，GitHub 也可能暂停定时任务，同步一次即可恢复。',
-                        )
-                      : tr(
-                          '保存后会提交到 GitCode 仓库：.glimnote/push.json、digest.json、push.mjs 和 .gitcode/workflows/glimnote-push.yml。流水线默认只认主分支，定时任务可能比设定时间晚几分钟启动。',
-                        )}
+                    {tr(
+                      '保存后会提交到 GitHub 仓库：.glimnote/push.json、digest.json、push.mjs 和 .github/workflows/glimnote-push.yml。工作流默认只认主分支，定时任务可能比设定时间晚几分钟启动；仓库长期没有活动时，GitHub 也可能暂停定时任务，同步一次即可恢复。',
+                    )}
                   </p>
                 </div>
               </div>
@@ -497,7 +498,7 @@ export function NotifySettings() {
               <Cloud size={16} strokeWidth={1.75} />
               <div>
                 {tr(
-                  '这个工作区连接的不是 GitHub，但较早的版本允许在这里开启云端推送，仓库里的定时任务还在往群里发消息。当前版本不再支持管理它，不过可以在这里关掉；关闭后会同步删除仓库里的工作流、摘要和发送脚本。',
+                  '这个工作区连接的不是 GitHub。GitCode 的云端定时任务不稳定，新版本已停止支持；开启中的旧配置会在下次同步时自动关闭，并删除仓库里的工作流、摘要和发送脚本。也可以现在点下面的按钮立即关闭。',
                 )}
               </div>
             </div>

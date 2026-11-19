@@ -62,8 +62,8 @@ export function TaskDetail() {
   const gitCfg = useApp((s) => s.cfg);
   const tr = useT();
 
-  // GitHub 与 GitCode 都有可用的平台定时流水线；其他平台不显示入口，避免配了也不会执行
-  const cloudSupported = gitCfg?.provider === 'github' || gitCfg?.provider === 'gitcode';
+  // 云端推送只支持 GitHub；GitCode 的定时任务会悄悄丢注册，不再显示入口
+  const cloudSupported = gitCfg?.provider === 'github';
   const task = tasks.find((t) => t.id === id) || null;
   const [draft, setDraft] = useState('');
   const [tagInput, setTagInput] = useState(false);

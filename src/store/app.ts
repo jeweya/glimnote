@@ -51,7 +51,12 @@ import {
   sync,
   type GitConfig,
 } from '../lib/git';
-import { readCloudPushConfig, refreshCloudPushDigest, saveCloudPushConfig } from '../lib/cloudPush';
+import {
+  disableLegacyCloudPush,
+  readCloudPushConfig,
+  refreshCloudPushDigest,
+  saveCloudPushConfig,
+} from '../lib/cloudPush';
 import {
   canDropFolder,
   loadNotebookOrder,
@@ -1799,6 +1804,10 @@ export const useApp = create<AppState>((set, get) => ({
       // 配置关着时函数内部直接返回，不写任何文件。
       try {
         const pushTasks = get().tasksLoaded ? get().tasks : await repo.loadTasks();
+        // 云端推送已改为只支持 GitHub：旧平台留着开启状态的，自动关闭并删除执行文件
+        if (await disableLegacyCloudPush(pushTasks, cfg.provider, `${cfg.owner}/${cfg.repo}`)) {
+          log('sync', 'info', '云端推送只支持 GitHub，已自动关闭并清理旧平台的定时任务');
+        }
         await refreshCloudPushDigest(pushTasks, cfg.provider, `${cfg.owner}/${cfg.repo}`);
       } catch (e) {
         // 写摘要失败不能挡住笔记同步：下次同步还会重试

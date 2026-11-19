@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Check, Copy, FolderOpen, TriangleAlert } from 'lucide-react';
+import { Check, Copy, FolderOpen, Sparkles, TriangleAlert } from 'lucide-react';
 import { useApp } from '../store/app';
 import { cn } from '../lib/utils';
 import { desktop, type McpHttpState, type McpInfo } from '../lib/desktop';
 import { useT } from '../lib/i18n';
 
 /**
- * 设置 → 集成：把「用 WorkBuddy / Claude Desktop 等 AI 客户端通过 MCP 管笔记」做成一件事：
+ * 设置 → MCP集成：把「用 WorkBuddy / Claude Desktop 等 AI 客户端通过 MCP 管笔记」做成一件事：
  * 打开开关 → 复制一段配置 → 粘进客户端。服务由应用自己拉起，用户不用碰 .cmd。
  * 细节见 docs/mydoc/13-MCP集成.md。
  */
@@ -37,6 +37,7 @@ export function McpSettings() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [err, setErr] = useState('');
 
   // 打开页签时读一次状态，之后每 5 秒对一下——服务可能在别处被停掉
@@ -73,11 +74,38 @@ export function McpSettings() {
   // 三行就够：整段 JSON 缩进两格读起来清爽，又不至于把卡片撑得很高
   const config = `{\n  "mcpServers": { "glimnote": { "url": "${url}" } }\n}`;
 
+  // 只走 HTTP：WorkBuddy 这类能操作本机的 AI 拿到地址和一段配置就能接，
+  // 不再塞 stdio / .cmd 的备选，避免用户在一堆路径里做选择。
+  const prompt = [
+    tr('请帮我把「萤光笔记」的 MCP 服务接入当前客户端。服务地址：{url}', { url }),
+    '',
+    tr('把下面这项合并进客户端已有的 mcpServers，保留其他服务器，保存后重启客户端或重新加载 MCP：'),
+    config,
+    '',
+    tr('确认工具列表里出现 glimnote 的笔记、待办、灵感、日记工具。'),
+    tr('如果找不到，提醒我完全退出并重启客户端——多数客户端要重启才会加载新添加的 MCP。'),
+    '',
+    tr('如果你不能读写本机设置，直接告诉我该点哪里、把配置粘到哪里，不要编造文件路径。只修改 MCP 配置，不要改动我的笔记文件。'),
+    ...(state.running
+      ? []
+      : ['', tr('注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP集成」里打开服务开关。')]),
+  ].join('\n');
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(config);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setErr(tr('复制失败，请手动选中文字复制'));
+    }
+  };
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setPromptCopied(true);
+      window.setTimeout(() => setPromptCopied(false), 1800);
     } catch {
       setErr(tr('复制失败，请手动选中文字复制'));
     }
@@ -150,6 +178,24 @@ export function McpSettings() {
         </div>
 
         {problem && <div className="mcp-error">{problem}</div>}
+
+        <div className="mcp-ai">
+          <div className="mcp-ai-head">
+            <div className="mcp-ai-text">
+              <div className="mcp-ai-title">
+                <Sparkles size={13} strokeWidth={1.75} /> {tr('让 AI 帮你接入')}
+                <span className="mcp-ai-badge">{tr('推荐')}</span>
+              </div>
+              <div className="mcp-ai-desc">
+                {tr('把提示词发给 WorkBuddy 等能操作电脑的 AI，它会直接帮你把 MCP 配置加好。')}
+              </div>
+            </div>
+            <button type="button" className="btn btn-secondary mcp-copy" onClick={() => void copyPrompt()}>
+              {promptCopied ? <Check size={14} /> : <Copy size={14} />} {promptCopied ? tr('已复制') : tr('复制提示词')}
+            </button>
+          </div>
+          <pre className="mcp-ai-prompt">{prompt}</pre>
+        </div>
 
         <div className="mcp-json">
           <div className="mcp-json-head">

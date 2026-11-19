@@ -554,6 +554,9 @@ function registerFsHandlers() {
     createTray();
     return true;
   });
+  // 版本号以安装包里的 package.json 为准：界面构建时写死的版本号可能落后一版，
+  // 关于页和诊断信息都从这里取，避免和检查更新显示的不一致。
+  ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('app:repo-path', () => repoRoot());
   ipcMain.handle('app:repo-location', () => {
     const item = workspace.activeItem();

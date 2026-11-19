@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('glimnote', {
   // 渲染进程的 isomorphic-git 通过它走主进程转发，绕开 Git 服务端不返回 CORS 头的限制
   gitRequest: (req) => invoke('git:request', req),
   repoPath: () => invoke('app:repo-path'),
+  // 安装包的真实版本号（运行时由主进程读取，界面不再写死）
+  version: () => invoke('app:version'),
   // 界面语言切换后，托盘菜单跟着换
   setUiLang: (lang) => invoke('app:ui-lang', lang),
   repoLocation: () => invoke('app:repo-location'),

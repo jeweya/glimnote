@@ -385,6 +385,8 @@ export interface DesktopBridge {
   onNoteFlushRequest?: (cb: () => void) => () => void;
   noteFlushReady?: () => Promise<boolean>;
   captureSaved: (info: CaptureInfo) => Promise<boolean>;
+  /** 安装包的实际版本号：运行时由主进程读取，避免界面构建时写死导致落后一版 */
+  version?: () => Promise<string>;
   checkUpdate: () => Promise<UpdateResult>;
   /** 下载更新；完成后主进程推 downloaded，这里只返回成败 */
   downloadUpdate: () => Promise<{ ok: boolean; message?: string }>;

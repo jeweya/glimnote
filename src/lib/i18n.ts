@@ -253,7 +253,7 @@ const EN: Record<string, string> = {
   常规: 'General',
   同步: 'Sync',
   通知: 'Notifications',
-  集成: 'Integrations',
+  MCP集成: 'MCP',
   安全: 'Security',
   统计: 'Stats',
   快捷键: 'Shortcuts',
@@ -458,6 +458,7 @@ const EN: Record<string, string> = {
   按状态筛选: 'Filter by status',
   状态: 'Status',
   '添加待办，回车保存': 'Add a task, press Enter to save',
+  '回车保存 · Esc 取消': 'Enter to save · Esc to cancel',
   添加待办: 'Add task',
   '输入标题后回车保存；在结尾写日期或 18:00 这样的时间，会自动识别为截止时间':
     'Type a title and press Enter. A date or time like 18:00 at the end becomes the due time.',
@@ -1028,10 +1029,10 @@ const EN: Record<string, string> = {
   '推送失败？': 'Push failed?',
   '没收到推送时点这里，查看原因和刷新配置':
     'Click here if no push arrived to see possible causes and refresh the config',
-  '云端推送不完全可靠。它借用的是 Git 平台的免费定时任务：触发时间可能晚几分钟到几十分钟；仓库长期没有活动时，平台可能悄悄暂停定时任务；摘要也只到上一次成功同步为止。请不要过度依赖，重要任务仍以本机到点提醒为准。':
-    'Cloud push is not fully reliable. It borrows the free scheduled jobs of the Git platform: runs may be several minutes to tens of minutes late; if the repository stays inactive, the platform may quietly pause the schedule; and the digest only reflects the last successful sync. Do not rely on it alone — keep the local reminder for important tasks.',
-  '如果开启后一直没收到消息，可能是平台的定时任务被暂停或注册丢失。点下方「刷新配置」，应用会重新提交一次工作流，让平台重新登记；之后请关注下一次推送时间的消息。':
-    'If no message arrives after enabling it, the platform may have paused or dropped the schedule. Click "Refresh config" below: the app will recommit the workflow so the platform registers the schedule again. Then watch for the next push time.',
+  '云端推送不完全可靠。它借用的是 GitHub Actions 的免费定时任务：触发时间可能晚几分钟到几十分钟；仓库长期没有活动时，GitHub 可能悄悄暂停定时任务；摘要也只到上一次成功同步为止。请不要过度依赖，重要任务仍以本机到点提醒为准。':
+    'Cloud push is not fully reliable. It relies on GitHub Actions’ free scheduled jobs: runs may be several minutes to tens of minutes late; if the repository stays inactive, GitHub may quietly pause the schedule; and the digest only reflects the last successful sync. Do not rely on it alone — keep the local reminder for important tasks.',
+  '如果开启后一直没收到消息，可能是 GitHub 的定时任务被暂停或注册丢失。点下方「刷新配置」，应用会重新提交一次工作流，让 GitHub 重新登记；之后请关注下一次推送时间的消息。':
+    'If no message arrives after enabling it, GitHub may have paused or dropped the schedule. Click "Refresh config" below: the app will recommit the workflow so GitHub registers the schedule again. Then watch for the next push time.',
   '刷新只会更新仓库里的工作流，不会改动待办、推送时间或 Webhook。':
     'Refreshing only updates the workflow in the repository; it does not touch your tasks, push time, or webhook.',
   '当前配置：每天 {time}（北京时间）推送 {hours} 小时内待办':
@@ -1042,6 +1043,7 @@ const EN: Record<string, string> = {
   刷新配置: 'Refresh config',
   让平台重新登记定时任务: 'Ask the platform to register the schedule again',
   云端推送还没开启: 'Cloud push is not on yet',
+  '云端推送目前只支持 GitHub 仓库': 'Cloud push currently only supports GitHub repositories',
   '已更新工作流并开始同步，请关注下次推送（每天 {time}）':
     'Workflow updated and syncing. Watch for the next push (daily at {time}).',
   '工作流已更新，连接仓库并同步一次后才会生效':
@@ -1078,6 +1080,7 @@ const EN: Record<string, string> = {
   结束: 'Ends',
   永不结束: 'Never ends',
   清除结束日期: 'Clear end date',
+  清除日期: 'Clear date',
   '结束日期不晚于当前截止日，完成后不会生成下一次。':
     'The end date is not after the current due date, so completing this will not create a next task.',
   提前提醒: 'Advance reminders',
@@ -1328,6 +1331,21 @@ const EN: Record<string, string> = {
   '这段配置只在桌面版有效。': 'This config only works in the desktop app.',
   '里的 Markdown，改动同样会被 Git 同步。': ' — changes are also synced through Git.',
   '，MCP 直接读文件——笔记本机别长期放着不管。': ", and MCP reads files directly. Don't leave it unattended for long.",
+  '让 AI 帮你接入': 'Let AI set it up',
+  '把提示词发给 WorkBuddy 等能操作电脑的 AI，它会直接帮你把 MCP 配置加好。':
+    'Send this prompt to WorkBuddy or another AI that can operate your computer; it will add the MCP config for you.',
+  '请帮我把「萤光笔记」的 MCP 服务接入当前客户端。服务地址：{url}':
+    'Please connect the Glimnote MCP service to the current client. Service URL: {url}',
+  '把下面这项合并进客户端已有的 mcpServers，保留其他服务器，保存后重启客户端或重新加载 MCP：':
+    'Merge the following entry into the client’s existing mcpServers, keep other servers, then save and restart or reload MCP:',
+  '确认工具列表里出现 glimnote 的笔记、待办、灵感、日记工具。':
+    'Confirm that glimnote tools for notes, tasks, ideas, and journals appear in the tool list.',
+  '如果找不到，提醒我完全退出并重启客户端——多数客户端要重启才会加载新添加的 MCP。':
+    'If they are missing, remind me to fully quit and restart the client — most clients only load a newly added MCP after a restart.',
+  '如果你不能读写本机设置，直接告诉我该点哪里、把配置粘到哪里，不要编造文件路径。只修改 MCP 配置，不要改动我的笔记文件。':
+    'If you cannot read or write local settings, tell me exactly where to click and what to paste — do not invent file paths. Only change the MCP configuration; do not modify my note files.',
+  '注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP集成」里打开服务开关。':
+    'Note: the MCP service is not running. If connection fails, remind me to turn on the service switch in Glimnote → Settings → MCP.',
 
   // 同步引导/系统应用缺失
   'GitCode、Gitee 私有仓库免费': 'Free private repos on GitCode and Gitee',
@@ -2509,8 +2527,8 @@ const EN: Record<string, string> = {
 
   '旧版云端推送只能用上面的「关闭并删除工作流」':
     'Legacy cloud push can only be turned off with “Turn off and delete workflow” above',
-  '这个工作区连接的不是 GitHub，但较早的版本允许在这里开启云端推送，仓库里的定时任务还在往群里发消息。当前版本不再支持管理它，不过可以在这里关掉；关闭后会同步删除仓库里的工作流、摘要和发送脚本。':
-    'This workspace is not connected to GitHub, but an earlier version allowed enabling cloud push here and the repo’s scheduled job is still posting to the group. This version no longer manages it, but you can turn it off here; turning it off deletes the repo’s workflow, digest, and send script on the next sync.',
+  '这个工作区连接的不是 GitHub。GitCode 的云端定时任务不稳定，新版本已停止支持；开启中的旧配置会在下次同步时自动关闭，并删除仓库里的工作流、摘要和发送脚本。也可以现在点下面的按钮立即关闭。':
+    'This workspace is not connected to GitHub. GitCode’s scheduled jobs are unreliable, so this version no longer supports GitCode cloud push. An enabled legacy setup is turned off on the next sync, deleting the repo’s workflow, digest, and send script. You can also turn it off now with the button below.',
   '云端推送（旧配置）': 'Cloud push (legacy)',
   '仓库：{repo} · 配置时间 {time}（北京时间）。同一群里每天收到两条汇总，通常就是有两个仓库都开着云端推送，这里是其中一个。':
     'Repo: {repo} · configured time {time} (Beijing). If the group receives two digests a day, two repos usually have cloud push enabled; this is one of them.',
@@ -2518,8 +2536,6 @@ const EN: Record<string, string> = {
   '关闭后需要同步一次，删除才会提交到远端；如果同步失败，也可以到仓库网页手动删除 .gitcode/workflows/glimnote-push.yml。':
     'After turning it off, sync once so the deletion reaches the remote. If sync fails, delete .gitcode/workflows/glimnote-push.yml manually on the repo website.',
   关闭并删除工作流: 'Turn off and delete workflow',
-  '保存后会提交到 GitCode 仓库：.glimnote/push.json、digest.json、push.mjs 和 .gitcode/workflows/glimnote-push.yml。流水线默认只认主分支，定时任务可能比设定时间晚几分钟启动。':
-    'Saving commits to the GitCode repo: .glimnote/push.json, digest.json, push.mjs, and .gitcode/workflows/glimnote-push.yml. The pipeline only uses the default branch, and scheduled runs may start a few minutes late.',
 
   // 待办状态与尾项
   低优先级: 'Low priority',

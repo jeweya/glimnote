@@ -119,6 +119,8 @@ export function TaskPanel() {
   const [reviewModal, setReviewModal] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [title, setTitle] = useState('');
+  // 聚焦或有草稿时把快速添加框展开：一行输入框看不全长标题，也不方便同时改日期 / 优先级
+  const [addFocused, setAddFocused] = useState(false);
   // 快速添加默认落在今天：大多数待办是「今天要做的事」，不想排期时再点日期清除
   const [due, setDue] = useState<string | undefined>(() => dateKey());
   const [priority, setPriority] = useState<TaskPriority>('normal');
@@ -136,7 +138,7 @@ export function TaskPanel() {
   const [quickPriority, setQuickPriority] = useState<{ x: number; y: number } | null>(null);
   const [statusMenu, setStatusMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDone, setConfirmDone] = useState(false);
-  const addRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const doneGroupRef = useRef<HTMLDivElement>(null);
   const composing = useRef(false);
@@ -264,6 +266,15 @@ export function TaskPanel() {
         .join(' · ');
 
   const focusAdd = () => addRef.current?.focus();
+
+  // 有焦点或有草稿就展开：至少两行，长标题自动长高，超过约五行改为内部滚动
+  const addExpanded = addFocused || title.trim().length > 0;
+  useEffect(() => {
+    const el = addRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, addExpanded ? 46 : 23), 112)}px`;
+  }, [title, addExpanded]);
 
   const resetFilters = () => {
     clearFilters();
@@ -692,16 +703,24 @@ export function TaskPanel() {
         </div>
       </div>
 
-      <div className="task-quick">
+      <div
+        className={cn('task-quick', addExpanded && 'expanded')}
+        onBlur={(e) => {
+          // 离开整张卡片（点日期 / 优先级按钮仍然算在卡片里）才收起
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAddFocused(false);
+        }}
+      >
         <Plus size={14} className="task-quick-plus" onClick={focusAdd} />
-        <input
+        <textarea
           ref={addRef}
           data-quick-add
+          rows={1}
           value={title}
           placeholder={tr('添加待办，回车保存')}
           aria-label={tr('添加待办')}
           title={tr('输入标题后回车保存；在结尾写日期或 18:00 这样的时间，会自动识别为截止时间')}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, ' '))}
+          onFocus={() => setAddFocused(true)}
           onCompositionStart={() => {
             composing.current = true;
           }}
@@ -718,6 +737,7 @@ export function TaskPanel() {
             }
           }}
         />
+        {addExpanded && <span className="tq-hint">{tr('回车保存 · Esc 取消')}</span>}
         <button
           className={cn('quick-chip', due && 'on')}
           onClick={(e) => {
@@ -728,6 +748,17 @@ export function TaskPanel() {
         >
           {due ? dueLabel(due, now) : tr('日期')}
         </button>
+        {due && (
+          <button
+            type="button"
+            className="quick-chip-clear"
+            title={tr('清除日期')}
+            aria-label={tr('清除日期')}
+            onClick={() => setDue(undefined)}
+          >
+            <X size={12} />
+          </button>
+        )}
         <button
           className={cn('quick-chip', priority !== 'normal' && 'on')}
           onClick={(e) => {

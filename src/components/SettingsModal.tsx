@@ -282,6 +282,8 @@ export function SettingsModal() {
   const [prompts, setPrompts] = useState<AiPrompts>(() => loadAiPrompts());
   const [aiTab, setAiTab] = useState<'conn' | 'prompts'>('conn');
   const [openPrompt, setOpenPrompt] = useState<AiPromptKey | null>(null);
+  // 版本号优先用主进程的运行时值：前端构建时写死的 __APP_VERSION__ 只在网页版兜底
+  const [appVersion, setAppVersion] = useState(__APP_VERSION__);
   const [update, setUpdate] = useState<UpdateResult | null>(null);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -327,6 +329,22 @@ export function SettingsModal() {
       if (saveFlashTimer.current) window.clearTimeout(saveFlashTimer.current);
     };
   }, []);
+
+  // 版本号运行时从主进程取：安装包升级后界面立即显示新版本，
+  // 不再依赖构建时写死的 __APP_VERSION__（曾经因此显示成上一版）。
+  useEffect(() => {
+    if (!bridge?.version) return;
+    let cancelled = false;
+    void bridge
+      .version()
+      .then((value) => {
+        if (!cancelled && value) setAppVersion(String(value));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge]);
 
   // 打开「关于」页时，把主进程后台自动检查到的新版本带进来：
   // 用户点通知进来就能直接看到版本和操作，而不是一片空白。
@@ -1161,7 +1179,7 @@ export function SettingsModal() {
   const exportDiagnostics = () => {
     const state = useApp.getState();
     const text = buildDiagnostics({
-      [t('应用版本')]: __APP_VERSION__,
+      [t('应用版本')]: appVersion,
       [t('运行环境')]: bridge ? t('Electron 桌面端') : t('浏览器 / PWA'),
       [t('平台')]: navigator.platform || navigator.userAgent,
       [t('存储')]: bridge ? t('真实文件系统') : t('浏览器 OPFS（LightningFS）'),
@@ -1657,7 +1675,7 @@ export function SettingsModal() {
               ['sync', '同步'],
               ['ai', 'AI'],
               ['notify', '通知'],
-              ['mcp', '集成'],
+              ['mcp', 'MCP集成'],
               ['security', '安全'],
               ['stats', '统计'],
               ['keys', '快捷键'],
@@ -2899,7 +2917,7 @@ export function SettingsModal() {
             <>
               <div className="repo-box">
                 <div className="rb-title">
-                  <Cloud size={14} /> {t('萤光笔记 Glimnote {version}', { version: __APP_VERSION__ })}
+                  <Cloud size={14} /> {t('萤光笔记 Glimnote {version}', { version: appVersion })}
                 </div>
                 <div className="rb-sub">{t('萤火微光，记录细碎微小的灵感')}</div>
                 <div className="rb-sub">{t('本地优先 · Markdown · Git 同步 · Windows 与网页')}</div>

@@ -2722,37 +2722,73 @@
 .task-quick {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin: 0 16px 8px;
-  padding: 0 8px;
-  height: 36px;
+  padding: 5px 8px;
+  min-height: 36px;
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
   background: var(--surface);
-  transition: border-color var(--dur-micro);
+  transition:
+    border-color var(--dur-micro) var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background-color var(--dur-micro) var(--ease-out);
+}
+.task-quick:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line-strong));
+}
+.task-quick.expanded {
+  align-items: flex-start;
+  padding: 8px 8px 6px;
+  box-shadow: var(--shadow-2);
 }
 .task-quick:focus-within {
   border-color: var(--accent);
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent),
+    var(--shadow-2);
+  outline: none;
 }
 .task-quick-plus {
   color: var(--text-3);
   flex: 0 0 auto;
   cursor: pointer;
+  margin-top: 2px;
 }
-.task-quick input {
-  flex: 1;
+.task-quick.expanded .task-quick-plus {
+  margin-top: 5px;
+}
+.task-quick textarea {
+  flex: 1 1 0;
   min-width: 0;
+  height: 23px;
+  max-height: 112px;
+  padding: 0;
   border: none;
   background: none;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  font-family: inherit;
   font-size: var(--fs-base);
+  line-height: 1.45;
   color: var(--text-1);
 }
-.task-quick input::placeholder {
+.task-quick.expanded textarea {
+  flex-basis: calc(100% - 20px);
+}
+.task-quick textarea::placeholder {
   color: var(--text-3);
+}
+/* 展开时左下角放快捷键提示，右下角留给日期 / 优先级 */
+.tq-hint {
+  margin-right: auto;
+  color: var(--text-3);
+  font-size: var(--fs-2xs);
+  line-height: 22px;
+  white-space: nowrap;
 }
 .quick-chip {
   flex: 0 0 auto;
@@ -2770,6 +2806,22 @@
 .quick-chip.on {
   color: var(--accent-text);
   background: var(--accent-soft);
+}
+/* 日期 chip 右侧的清除按钮：贴着 chip 站，点了把截止日期清空 */
+.quick-chip-clear {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -3px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.quick-chip-clear:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
 }
 
 /* 筛选条：只放时间 chip，一栏一条线；状态下拉在搜索行右侧（见 .search-row） */
@@ -4271,7 +4323,7 @@ button.ext-link {
   accent-color: var(--accent);
 }
 
-/* ---------- 设置 → 集成（MCP） ---------- */
+/* ---------- 设置 → MCP集成 ---------- */
 .mono {
   font-family: var(--font-mono);
 }
@@ -4364,6 +4416,63 @@ button.ext-link {
 }
 .mcp-card .hint {
   margin: 0;
+}
+
+/* 让 AI 帮忙接入：一块可复制的提示词 */
+.mcp-ai {
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  overflow: hidden;
+}
+.mcp-ai-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 0 12px;
+}
+.mcp-ai-text {
+  flex: 1;
+  min-width: 0;
+}
+.mcp-ai-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-1);
+}
+.mcp-ai-title svg {
+  color: var(--accent);
+}
+.mcp-ai-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+}
+.mcp-ai-desc {
+  margin-top: 3px;
+  font-size: var(--fs-2xs);
+  line-height: 1.55;
+  color: var(--text-3);
+}
+.mcp-ai-head .mcp-copy {
+  margin-top: 1px;
+}
+.mcp-ai-prompt {
+  margin: 0;
+  max-height: 156px;
+  overflow: auto;
+  padding: 9px 12px 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .set-label svg {
   vertical-align: -2px;

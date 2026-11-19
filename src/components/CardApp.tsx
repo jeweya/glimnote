@@ -258,6 +258,8 @@ export function CardApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [taskDraft, setTaskDraft] = useState('');
+  // 浮窗里的快速添加也改成点击展开：一行太窄，长标题只能左右滚
+  const [addFocused, setAddFocused] = useState(false);
   const [ideaDraft, setIdeaDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState('');
@@ -276,7 +278,9 @@ export function CardApp() {
   /** 正在改到点时间的那一行；同一时刻只开一个 */
   const [timeEdit, setTimeEdit] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
-  const addRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLTextAreaElement>(null);
+  /** 输入法正在组字时不把回车当成提交 */
+  const addComposing = useRef(false);
   const shortcutScrollRef = useRef<HTMLDivElement>(null);
   /** 拖拽中不靠 React 状态判断滚动，避免高速拖动时闭包拿到旧值 */
   const dragIdRef = useRef<string | null>(null);
@@ -285,6 +289,15 @@ export function CardApp() {
   const flashTimer = useRef(0);
   const bridge = desktop();
   const tr = useT();
+
+  // 聚焦或有草稿就展开：至少两行，标题再长就自动长高，约四行后内部滚动
+  const addExpanded = addFocused || taskDraft.trim().length > 0;
+  useEffect(() => {
+    const el = addRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, addExpanded ? 40 : 20), 92)}px`;
+  }, [taskDraft, addExpanded]);
   /** 标题栏拖动：普通形态和锁定占位共用同一套指针 → IPC 移动 */
   const startWindowDrag = useCardWindowDrag(bridge);
 
@@ -1207,20 +1220,42 @@ export function CardApp() {
       {tab === 'tasks' ? (
         <div className="card-body" role="tabpanel" aria-label={tr('待办清单')}>
           <form
-            className="card-add"
+            className={cn('card-add', addExpanded && 'expanded')}
+            onBlur={(e) => {
+              // 离开整张卡片才收起；点「添加」按钮仍算在卡片里
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAddFocused(false);
+            }}
             onSubmit={(e) => {
               e.preventDefault();
               void addTask();
             }}
           >
             <Plus size={14} strokeWidth={2} />
-            <input
+            <textarea
               ref={addRef}
+              rows={1}
               value={taskDraft}
               placeholder={tr('添加今天的待办；结尾写 18:00 可提醒')}
               aria-label={tr('添加待办')}
-              onChange={(e) => setTaskDraft(e.target.value)}
+              onChange={(e) => setTaskDraft(e.target.value.replace(/\n/g, ' '))}
+              onFocus={() => setAddFocused(true)}
+              onCompositionStart={() => {
+                addComposing.current = true;
+              }}
+              onCompositionEnd={() => {
+                addComposing.current = false;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !addComposing.current) {
+                  e.preventDefault();
+                  void addTask();
+                } else if (e.key === 'Escape') {
+                  setTaskDraft('');
+                  e.currentTarget.blur();
+                }
+              }}
             />
+            {addExpanded && <span className="card-add-hint">{tr('回车保存 · Esc 取消')}</span>}
             <button type="submit" className="card-add-btn" disabled={!taskDraft.trim() || busy}>
               {tr('添加')}
             </button>

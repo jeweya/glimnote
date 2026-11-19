@@ -138,16 +138,6 @@ function cronOf(time: string) {
   return `${m} ${utcHour} * * *`;
 }
 
-/**
- * GitCode 的 .gitcode/workflows 按仓库本地时区（北京时间）解析 cron：
- * 实测 17:25 生成的 `25 9` 在 09:25 触发，说明它没有把 cron 当 UTC。
- * 这里直接写本地时间，避免再被减 8 小时。
- */
-function cronLocal(time: string) {
-  const [h, m] = time.split(':').map(Number);
-  return `${m} ${h} * * *`;
-}
-
 /** 本地时间戳，精确到秒；两次刷新才不会写出同一份内容 */
 function refreshStamp() {
   const d = new Date();
@@ -183,32 +173,6 @@ jobs:
           node-version: '24'
       - name: Send daily digest
         run: node .glimnote/push.mjs
-`;
-}
-
-function gitcodeWorkflow(cron: string, refreshedAt?: string) {
-  // GitCode 的校验比 GitHub 严格：任务和每一步都必须有纯英文 name，
-  // 且只认内置的 checkout / setup-node，不认 actions/xxx@v4。
-  return `# 由萤光笔记自动生成：设置 → 通知 → 云端推送
-${stampLine(refreshedAt)}name: Glimnote Daily Push
-on:
-  schedule:
-    - cron: '${cron}'
-  workflow_dispatch: {}
-jobs:
-  push:
-    name: Send Daily Digest
-    runs-on: [ubuntu-latest, x64, small]
-    steps:
-      - name: Checkout Repository
-        uses: checkout
-      - name: Setup Node.js
-        uses: setup-node
-        with:
-          node-version: '20'
-      - name: Send Daily Digest
-        run: |
-          node .glimnote/push.mjs
 `;
 }
 
@@ -248,7 +212,7 @@ async function writeIfChanged(path: string, content: string) {
   await writeText(path, next);
 }
 
-/** 写出 CI 需要的全部文件；只写当前平台的工作流，切换平台时顺手清掉另一份 */
+/** 写出 CI 需要的全部文件；云端推送只支持 GitHub，其他平台不生成任何会执行的流水线 */
 export async function writeCloudPushArtifacts(
   cfg: CloudPushConfig,
   tasks: Task[],
@@ -271,27 +235,41 @@ export async function writeCloudPushArtifacts(
     );
     return;
   }
+  if (provider !== 'github') {
+    // GitCode 的定时任务会悄悄丢注册，已停止支持；旧配置即使还开着也不再生成摘要和脚本，
+    // 并清掉遗留的 GitCode 工作流，避免它继续按旧摘要往群里发消息
+    await writeIfChanged(CLOUD_PUSH_FILE, configFile);
+    await Promise.all(
+      [CLOUD_PUSH_DIGEST_FILE, CLOUD_PUSH_SCRIPT_FILE, CLOUD_PUSH_GITHUB_WORKFLOW, CLOUD_PUSH_GITCODE_WORKFLOW].map(
+        removeQuietly,
+      ),
+    );
+    return;
+  }
   await writeIfChanged(CLOUD_PUSH_FILE, configFile);
   await writeIfChanged(CLOUD_PUSH_DIGEST_FILE, digestFile(cfg, tasks));
   await writeIfChanged(CLOUD_PUSH_SCRIPT_FILE, pushScriptSource);
-  const cron = provider === 'gitcode' ? cronLocal(cfg.time) : cronOf(cfg.time);
-  if (provider === 'github') {
-    await writeIfChanged(CLOUD_PUSH_GITHUB_WORKFLOW, githubWorkflow(cron, cfg.refreshedAt));
-    await removeQuietly(CLOUD_PUSH_GITCODE_WORKFLOW);
-  } else if (provider === 'gitcode') {
-    await writeIfChanged(CLOUD_PUSH_GITCODE_WORKFLOW, gitcodeWorkflow(cron, cfg.refreshedAt));
-    await removeQuietly(CLOUD_PUSH_GITHUB_WORKFLOW);
-  } else {
-    // Gitee 的流水线格式和触发方式都不同，v1 不自动生成，保留配置与摘要等用户手动接
-    await removeQuietly(CLOUD_PUSH_GITHUB_WORKFLOW);
-    await removeQuietly(CLOUD_PUSH_GITCODE_WORKFLOW);
-  }
+  await writeIfChanged(CLOUD_PUSH_GITHUB_WORKFLOW, githubWorkflow(cronOf(cfg.time), cfg.refreshedAt));
+  await removeQuietly(CLOUD_PUSH_GITCODE_WORKFLOW);
+}
+
+/**
+ * 同步前调用：GitCode 等旧平台如果还留着开启状态，自动关掉并清理会执行的流水线与摘要。
+ * push.json 里的 Webhook、时间等配置保留；以后换到 GitHub 仓库可以直接重新开启。
+ */
+export async function disableLegacyCloudPush(tasks: Task[], provider?: Provider, repoFull?: string) {
+  const cfg = cache || (await readCloudPushConfig());
+  if (!cfg.enabled || provider === 'github') return false;
+  cache = { ...cfg, enabled: false };
+  await writeCloudPushArtifacts(cache, tasks, provider, repoFull);
+  window.dispatchEvent(new Event('glimnote:cloud-push-changed'));
+  return true;
 }
 
 /** 同步前调用：配置开着就刷新摘要和工作流，任务改了不必手动点保存 */
 export async function refreshCloudPushDigest(tasks: Task[], provider?: Provider, repoFull?: string) {
-  // GitHub 和 GitCode 都有可用的定时流水线；Gitee 等其他平台不生成相关文件
-  if (provider !== 'github' && provider !== 'gitcode') return;
+  // 云端推送只支持 GitHub；GitCode 的定时任务不稳定，已不再生成或刷新相关文件
+  if (provider !== 'github') return;
   const cfg = cache || (await readCloudPushConfig());
   if (!cfg.enabled) return;
   await writeCloudPushArtifacts(cfg, tasks, provider, repoFull);
@@ -306,13 +284,13 @@ export async function saveCloudPushConfig(cfg: CloudPushConfig, tasks: Task[], p
 
 /**
  * 待办详情里的「刷新配置」：更新工作流注释里的时间戳，让文件内容真正变一次。
- * GitCode / GitHub 都只在工作流文件变化时重新登记定时任务；
+ * GitHub 只在工作流文件变化时重新登记定时任务；
  * 平台悄悄把定时任务丢了的场景下，这是不需要改推送时间的恢复办法。
  * 写完后由调用方触发一次强制同步，把新文件提交上去。
  */
 export async function refreshCloudPushRegistration(tasks: Task[], provider?: Provider, repoFull?: string) {
-  if (provider !== 'github' && provider !== 'gitcode') {
-    throw new Error('当前平台不支持云端推送');
+  if (provider !== 'github') {
+    throw new Error('云端推送目前只支持 GitHub 仓库');
   }
   const current = cache || (await readCloudPushConfig());
   if (!current.enabled) throw new Error('云端推送还没开启');

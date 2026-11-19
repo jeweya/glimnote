@@ -313,39 +313,73 @@ html[data-window='card'] ::-webkit-scrollbar-thumb:hover {
 .card-add {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
-  height: 36px;
+  gap: 6px 7px;
+  min-height: 36px;
   margin: 0 12px 10px;
-  padding: 0 6px 0 10px;
+  padding: 4px 6px 4px 10px;
   border: 1px solid transparent;
   border-radius: var(--r-md);
   background: var(--surface-2);
   color: var(--text-3);
   transition:
     border-color var(--dur-micro) var(--ease-out),
-    background var(--dur-micro) var(--ease-out);
+    background var(--dur-micro) var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+
+.card-add.expanded {
+  align-items: flex-start;
+  padding: 8px 6px 6px 10px;
+  background: var(--surface-page);
+  box-shadow: var(--shadow-1);
 }
 
 .card-add:focus-within {
   background: var(--surface-page);
-  border-color: var(--line-strong);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent),
+    var(--shadow-1);
 }
 
-.card-add input {
-  flex: 1;
+.card-add.expanded > svg {
+  margin-top: 3px;
+}
+
+.card-add textarea {
+  flex: 1 1 0;
   min-width: 0;
-  height: 100%;
+  height: 20px;
+  max-height: 92px;
+  padding: 0;
   border: none;
   outline: none;
   background: transparent;
+  resize: none;
+  overflow-y: auto;
   font-family: var(--font-ui);
   font-size: var(--fs-sm);
+  line-height: 1.45;
   color: var(--text-1);
 }
 
-.card-add input::placeholder {
+.card-add.expanded textarea {
+  flex-basis: calc(100% - 21px);
+}
+
+.card-add textarea::placeholder {
   color: var(--text-3);
+}
+
+/* 展开后左下角提示快捷键，右下角留给「添加」按钮 */
+.card-add-hint {
+  margin-right: auto;
+  color: var(--text-3);
+  font-size: var(--fs-2xs);
+  line-height: 22px;
+  white-space: nowrap;
 }
 
 .card-add-btn {

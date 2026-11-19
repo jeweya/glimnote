@@ -42,9 +42,8 @@ export function CloudPushAutoSync() {
   }, []);
 
   useEffect(() => {
-    // GitHub 与 GitCode 都有可用的平台定时流水线；其他平台即使留着旧配置也不再定时同步
-    if (!gitCfg || (gitCfg.provider !== 'github' && gitCfg.provider !== 'gitcode') || !token || !cloud.enabled)
-      return;
+    // 云端推送只支持 GitHub；其他平台即使留着旧配置也不再定时同步
+    if (!gitCfg || gitCfg.provider !== 'github' || !token || !cloud.enabled) return;
     let timer = 0;
     let stopped = false;
 
