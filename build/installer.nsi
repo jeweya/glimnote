@@ -11,7 +11,7 @@ SetCompressor zlib
 !define APP_ID "Glimnote"
 ; 版本号默认与 package.json 保持一致，可用 makensis -DAPP_VERSION=x.y.z 覆盖
 !ifndef APP_VERSION
-  !define APP_VERSION "0.1.19"
+  !define APP_VERSION "0.1.20"
 !endif
 ; VIProductVersion 只接受四段纯数字，预发版（0.1.19-beta.1）要单独传去掉后缀的数字版本：
 ;   makensis -DAPP_VERSION=0.1.19-beta.1 -DAPP_VERSION_NUM=0.1.19 ...
