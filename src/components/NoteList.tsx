@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   ExternalLink,
@@ -29,6 +29,7 @@ import { excerptAround, highlight, highlightTermsOf } from '../lib/search';
 import { emptyTrash } from '../lib/repo';
 import { openNoteInNewWindow } from '../lib/windowMode';
 import { ConfirmDialog } from './Confirm';
+import { useTrashConfirm } from './TrashConfirm';
 import { Menu, type MenuEntry } from './Menu';
 import { CalendarPanel } from './CalendarPanel';
 import { PastPanel } from './PastPanel';
@@ -69,7 +70,7 @@ export function NoteList() {
   const create = useApp((s) => s.create);
   const openDaily = useApp((s) => s.openDaily);
   const togglePin = useApp((s) => s.togglePin);
-  const removeNote = useApp((s) => s.removeNote);
+  const { request: requestTrash, dialog: trashDialog } = useTrashConfirm();
   const restore = useApp((s) => s.restore);
   const purge = useApp((s) => s.purge);
   const refresh = useApp((s) => s.refresh);
@@ -143,6 +144,21 @@ export function NoteList() {
     if (list[0]) select(list[0].id);
   }, [calendar, list, current, select]);
 
+  // 新建或切换笔记后，把对应的行滚进可视区：列表已经滚到下面时新建，也能马上看到新笔记
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const currentId = current?.id;
+  useLayoutEffect(() => {
+    if (!currentId) return;
+    const box = listScrollRef.current;
+    if (!box) return;
+    const row = [...box.querySelectorAll<HTMLElement>('[data-note-id]')].find((el) => el.dataset.noteId === currentId);
+    if (!row) return;
+    const boxRect = box.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    if (rowRect.top < boxRect.top) box.scrollTop -= boxRect.top - rowRect.top + 8;
+    else if (rowRect.bottom > boxRect.bottom) box.scrollTop += rowRect.bottom - boxRect.bottom + 8;
+  }, [currentId, view]);
+
   const pickDay = (key: string) => {
     setDay(key);
     const hits = notes.filter((n) => n.title === key);
@@ -193,7 +209,7 @@ export function NoteList() {
           label: t('移到回收站'),
           icon: <Trash2 size={14} />,
           danger: true,
-          onClick: () => void removeNote(menuNote.id),
+          onClick: () => requestTrash(menuNote.id),
         },
       ]
     : [];
@@ -308,7 +324,7 @@ export function NoteList() {
               <button className="icon-btn" title={note.pinned ? t('取消置顶') : t('置顶')} onClick={() => togglePin(note.id)}>
                 <Pin size={14} style={note.pinned ? { color: 'var(--accent)' } : undefined} />
               </button>
-              <button className="icon-btn" title={t('移到回收站')} onClick={() => void removeNote(note.id)}>
+              <button className="icon-btn" title={t('移到回收站')} onClick={() => requestTrash(note.id)}>
                 <Trash2 size={14} />
               </button>
             </>
@@ -401,7 +417,7 @@ export function NoteList() {
         <CalendarPanel notes={notes} selected={day} onSelect={pickDay} onWrite={(key) => void openDaily(key)} />
       )}
 
-      <div className="list-scroll">
+      <div className="list-scroll" ref={listScrollRef}>
         {list.length === 0 ? (
           <div className="list-empty">
             {isTrash ? (
@@ -480,6 +496,8 @@ export function NoteList() {
       </div>
 
       {menu && menuItems.length > 0 && <Menu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+
+      {trashDialog}
 
       {confirmEmpty && (
         <ConfirmDialog

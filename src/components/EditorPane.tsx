@@ -48,6 +48,7 @@ import { FormatBar } from './FormatBar';
 import { Preview } from './Preview';
 import { Menu, type MenuEntry } from './Menu';
 import { ConfirmDialog } from './Confirm';
+import { useTrashConfirm } from './TrashConfirm';
 import { HistoryModal } from './HistoryModal';
 import { ImageLightbox } from './ImageLightbox';
 import { TocPanel } from './TocPanel';
@@ -81,7 +82,7 @@ export function EditorPane() {
   const updateContent = useApp((s) => s.updateContent);
   const setTitle = useApp((s) => s.setTitle);
   const setTags = useApp((s) => s.setTags);
-  const removeNote = useApp((s) => s.removeNote);
+  const { request: requestTrash, dialog: trashDialog } = useTrashConfirm();
   const restore = useApp((s) => s.restore);
   const purge = useApp((s) => s.purge);
   const refresh = useApp((s) => s.refresh);
@@ -350,7 +351,7 @@ export function EditorPane() {
     { label: t('移动到…'), icon: <FolderInput size={14} />, onClick: () => setMoveNote(note.id) },
     { label: t('历史版本…'), icon: <History size={14} />, onClick: () => setHistoryOpen(true) },
     'sep',
-    { label: t('移到回收站'), icon: <Trash2 size={14} />, danger: true, onClick: () => void removeNote(note.id) },
+    { label: t('移到回收站'), icon: <Trash2 size={14} />, danger: true, onClick: () => requestTrash(note.id) },
   ];
 
   /** 聊天窗读取正文与选区：两种编辑器各用各的坐标系，外面只拿统一快照 */
@@ -784,6 +785,7 @@ export function EditorPane() {
 
       {menu && <Menu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
 
+      {trashDialog}
 
       {historyOpen && (
         <HistoryModal

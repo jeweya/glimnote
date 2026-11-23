@@ -6,6 +6,12 @@
   <strong>简体中文</strong> · <a href="./README.en.md">English</a>
 </p>
 
+<p align="center">
+  <a href="https://gitcode.com/jewey/glimnote/releases">下载最新版</a> ·
+  <a href="https://gitcode.com/jewey/glimnote">GitCode 源码仓库</a> ·
+  <a href="https://github.com/jeweya/glimnote">GitHub</a>
+</p>
+
 # 萤光笔记 Glimnote
 
 > 萤火微光，记录细碎微小的灵感。
@@ -41,7 +47,7 @@
 
 ### 纸感编辑器：不露标记，专注写字
 
-编辑区基于 CodeMirror 6，Markdown 标记默认隐藏，看到的就是接近成稿的样子；字体、字号、行距与纸张底色都可以按喜好调整。
+编辑区默认是 TipTap 富文本，Markdown 标记不显示，看到的就是接近成稿的样子；需要改源码时一键切到 CodeMirror 6 源码模式。字体、字号、行距与纸张底色都可以按喜好调整。
 
 - 图片缩放、表格、代码块、双链、斜杠命令与模板都在编辑器里直接完成，标题和列表会自动接续。
 - 目录大纲、全局搜索与命令面板常驻手边，长文也能快速定位。
@@ -69,18 +75,18 @@
 
 ### MCP 集成：让 AI 客户端直接读写笔记
 
-桌面端内置 MCP 服务。在「设置 → 集成」打开开关，Claude Desktop、WorkBuddy 等支持 MCP 的客户端就能直接读写你的笔记、待办与灵感，并读取或追加当天日记。
+桌面端内置 MCP 服务。在「设置 → MCP集成」打开开关，Claude Desktop、WorkBuddy 等支持 MCP 的客户端就能直接读写你的笔记、待办与灵感，并读取或追加当天日记。
 
 - 共 56 个工具，覆盖笔记、笔记本、待办、灵感、日记、AI 小应用、首页入口与写作统计。
 - AI 客户端可以按内置规范生成完整 HTML，直接创建、修改或删除 AI 小应用，并读写应用数据。
-- 支持 HTTP 与 stdio 两种连接方式；HTTP 只监听本机回环地址，设置页可以复制现成的客户端配置。
+- 支持 HTTP 与 stdio 两种连接方式；HTTP 只监听本机回环地址，设置页可以复制现成的客户端配置，也可以点「让 AI 帮你接入」把提示词发给 WorkBuddy 等能操作本机的 AI 客户端，由它自动完成配置（装完记得重启客户端）。
 - 改动直接落到本地 Markdown 文件，下一次 Git 同步照常提交，不需要额外的云端服务。
 - 界面密码锁只挡界面、不挡 MCP；需要更强隔离时，请使用独立系统账户或另一台机器。
 
 ## 核心功能
 
 - **本地优先的 Markdown**：一篇笔记一个文件，文件夹就是笔记本；可导出 Markdown、自包含 HTML、PDF，整库可打包 ZIP。
-- **所见即所得编辑器**：CodeMirror 6，不露 Markdown 标记也能正常排版；支持图片缩放、表格、代码块、双链、斜杠命令与模板。
+- **所见即所得编辑器**：默认 TipTap 富文本，不露 Markdown 标记也能正常排版，源码模式基于 CodeMirror 6；支持图片缩放、表格、代码块、双链、斜杠命令与模板。
 - **组织与检索**：多级笔记本、标签、置顶、智能视图、日历与时间轴、全局搜索和命令面板，支持 `tag:`、`in:`、`before:` 等搜索语法。
 - **快捷入口**：首页按分组摆放笔记、网站、本机软件与小应用入口，支持拖拽排序；桌面浮窗同步显示，常用目标一步直达。
 - **待办清单**：独立任务库，四种状态、分类、优先级与到点提醒；可按今天 / 近 7 天 / 近 30 天让 AI 总结已完成事项并写进日记。
@@ -93,7 +99,9 @@
 
 ## 快速开始
 
-需要 Node.js 20 或更高版本。
+普通用户不需要安装 Node.js：到 [GitCode Releases](https://gitcode.com/jewey/glimnote/releases) 下载最新的 Windows 安装包 `Glimnote-Setup-x.y.z.exe`，双击安装即可。
+
+下面的命令面向开发者，需要 Node.js 20 或更高版本。
 
 ```bash
 npm install
@@ -130,13 +138,11 @@ npm run release:verify # 校验 app.asar 是否带自动更新组件、与 lates
 
 ## 技术栈
 
-React + TypeScript + Vite，CodeMirror 6 编辑器，Zustand 状态管理，isomorphic-git 同步；桌面端为 Electron，界面样式为手写 CSS，不依赖 UI 框架。
+React + TypeScript + Vite，TipTap 富文本编辑器（源码模式 CodeMirror 6），Zustand 状态管理，isomorphic-git 同步；桌面端为 Electron，界面样式为手写 CSS，不依赖 UI 框架。
 
 ## 许可证
 
 [MIT](LICENSE) © 2026 Glimnote contributors
-
-
 
 ## 目录
 

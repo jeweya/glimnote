@@ -6,6 +6,12 @@
   <a href="./README.md">简体中文</a> · <strong>English</strong>
 </p>
 
+<p align="center">
+  <a href="https://gitcode.com/jewey/glimnote/releases">Download latest release</a> ·
+  <a href="https://gitcode.com/jewey/glimnote">Source on GitCode</a> ·
+  <a href="https://github.com/jeweya/glimnote">GitHub</a>
+</p>
+
 # Glimnote
 
 > A glimmer of light for every small inspiration.
@@ -41,7 +47,7 @@ The lower half of the home screen holds grouped shortcuts that put everyday targ
 
 ### Paper-like editor: no markers, just writing
 
-The editor is built on CodeMirror 6. Markdown markers are hidden by default, so what you see looks close to the final page. Font, size, line spacing, and paper tint are all adjustable.
+The editor is TipTap rich text by default — Markdown markers are hidden, so what you see looks close to the final page; switch to the CodeMirror 6 source view when you want raw Markdown. Font, size, line spacing, and paper tint are all adjustable.
 
 - Resize images, insert tables and code blocks, create wiki links, and use slash commands and templates right in the editor; headings and lists continue automatically.
 - An outline panel, global search, and a command palette stay within reach, so even long documents are easy to navigate.
@@ -69,18 +75,18 @@ No cloud host to buy, no database to deploy, and no account to register with thi
 
 ### MCP integration: let AI clients read and write your notes
 
-The desktop app includes an MCP server. Turn it on in **Settings → Integrations**, and MCP-capable clients such as Claude Desktop and WorkBuddy can read and write your notes, to-dos, and ideas, and read or append to today's journal.
+The desktop app includes an MCP server. Turn it on in **Settings → MCP**, and MCP-capable clients such as Claude Desktop and WorkBuddy can read and write your notes, to-dos, and ideas, and read or append to today's journal.
 
 - 56 tools covering notes, notebooks, to-dos, ideas, journal entries, AI mini-apps, home shortcuts, and writing statistics.
 - AI clients can follow the built-in specification to generate complete HTML, create, modify, or delete AI mini-apps, and read or write app data.
-- HTTP and stdio transports are both supported. HTTP listens only on the loopback address, and the settings page can copy a ready-to-use client configuration.
+- HTTP and stdio transports are both supported. HTTP listens only on the loopback address, and the settings page can copy a ready-to-use client configuration or hand a setup prompt to a computer-operating AI client such as WorkBuddy (restart the client afterwards).
 - Changes land directly in local Markdown files and are committed by the next Git sync — no extra cloud service is required.
 - The UI password lock only guards the interface, not MCP. Use a separate OS account or another machine when you need stronger isolation.
 
 ## Core features
 
 - **Local-first Markdown**: one note per file; folders are notebooks. Export Markdown, self-contained HTML, or PDF, and archive an entire notebook as ZIP.
-- **WYSIWYG editor**: CodeMirror 6 lays out content cleanly without showing Markdown markers; supports image resizing, tables, code blocks, wiki links, slash commands, and templates.
+- **WYSIWYG editor**: TipTap rich text by default, with a CodeMirror 6 source mode; the rich view hides Markdown markers and lays content out cleanly. Supports image resizing, tables, code blocks, wiki links, slash commands, and templates.
 - **Organize and search**: nested notebooks, tags, pinning, smart views, calendar and timeline, global search, and a command palette with `tag:`, `in:`, and `before:` query syntax.
 - **Quick Access**: grouped shortcuts for notes, websites, local apps, and mini-apps on the home screen, with drag-and-drop ordering; the desktop floating panel shows the same set.
 - **To-dos**: a standalone task library with four states, categories, priorities, and due reminders. Ask AI to summarize completed items for today / the last 7 days / the last 30 days and write the summary into your journal.
@@ -93,7 +99,9 @@ The desktop app includes an MCP server. Turn it on in **Settings → Integration
 
 ## Getting started
 
-Requires Node.js 20 or later.
+End users don't need Node.js: download the latest Windows installer (`Glimnote-Setup-x.y.z.exe`) from [GitCode Releases](https://gitcode.com/jewey/glimnote/releases) and run it.
+
+The commands below are for running from source and require Node.js 20 or later.
 
 ```bash
 npm install
@@ -130,7 +138,7 @@ On first launch, the desktop app creates a `glimnote` folder under Documents. Ev
 
 ## Tech stack
 
-React + TypeScript + Vite, CodeMirror 6 for editing, Zustand for state, and isomorphic-git for sync; Electron on desktop, with hand-written CSS instead of a UI framework.
+React + TypeScript + Vite, TipTap for rich-text editing (CodeMirror 6 in source mode), Zustand for state, and isomorphic-git for sync; Electron on desktop, with hand-written CSS instead of a UI framework.
 
 ## License
 

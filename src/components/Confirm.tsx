@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle } from 'lucide-react';
 import { useT } from '../lib/i18n';
@@ -9,8 +9,12 @@ interface Props {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** 底部按钮上方的勾选项，例如「不再提醒」 */
+  checkLabel?: string;
+  checkDefault?: boolean;
+  /** 确认时带上勾选状态，方便调用方决定要不要记住 */
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (checked: boolean) => void;
 }
 
 export function ConfirmDialog({
@@ -19,12 +23,15 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   danger = false,
+  checkLabel,
+  checkDefault = false,
   onCancel,
   onConfirm,
 }: Props) {
   const tr = useT();
   const confirmText = confirmLabel ?? tr('确认');
   const cancelText = cancelLabel ?? tr('取消');
+  const [checked, setChecked] = useState(checkDefault);
   useEffect(() => {
     // 用捕获阶段拦下 Esc/Enter，避免同时触发下层的弹窗快捷键
     const onKey = (e: KeyboardEvent) => {
@@ -36,12 +43,12 @@ export function ConfirmDialog({
       if (e.key === 'Enter' && !e.isComposing) {
         e.stopPropagation();
         e.preventDefault();
-        onConfirm();
+        onConfirm(checked);
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [onCancel, onConfirm]);
+  }, [onCancel, onConfirm, checked]);
 
   return createPortal(
     <div className="overlay overlay-confirm" onClick={onCancel}>
@@ -61,11 +68,19 @@ export function ConfirmDialog({
             {desc && <div className="modal-desc">{desc}</div>}
           </div>
         </div>
+        {checkLabel && (
+          <div className="modal-check">
+            <label className="invite-never">
+              <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+              <span>{checkLabel}</span>
+            </label>
+          </div>
+        )}
         <div className="modal-foot">
           <button className="btn btn-ghost" onClick={onCancel}>
             {cancelText}
           </button>
-          <button className={danger ? 'btn btn-danger' : 'btn btn-primary'} onClick={onConfirm}>
+          <button className={danger ? 'btn btn-danger' : 'btn btn-primary'} onClick={() => onConfirm(checked)}>
             {confirmText}
           </button>
         </div>
