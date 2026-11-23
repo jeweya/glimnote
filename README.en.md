@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://gitcode.com/jewey/glimnote/releases">Download latest release</a> ·
   <a href="https://gitcode.com/jewey/glimnote">Source on GitCode</a> ·
+  <a href="https://gitee.com/jewey/glimnote">Gitee</a> ·
   <a href="https://github.com/jeweya/glimnote">GitHub</a>
 </p>
 
@@ -144,6 +145,14 @@ npm run release:verify # check that app.asar ships electron-updater and matches 
 See [docs/mydoc/06-桌面端打包与发布.md](docs/mydoc/06-桌面端打包与发布.md) for the full packaging and update-feed details.
 
 On first launch, the desktop app creates a `glimnote` folder under Documents. Every note is a plain file you can back up or open in any editor at any time.
+
+## Repositories
+
+- GitHub: <https://github.com/jeweya/glimnote>
+- Gitee: <https://gitee.com/jewey/glimnote>
+- GitCode: <https://gitcode.com/jewey/glimnote> — Windows installers and the auto-update manifest are published here, and the app checks for updates against this repository.
+
+Download installers from GitCode [Releases](https://gitcode.com/jewey/glimnote/releases).
 
 ## Tech stack
 

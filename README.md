@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://gitcode.com/jewey/glimnote/releases">下载最新版</a> ·
   <a href="https://gitcode.com/jewey/glimnote">GitCode 源码仓库</a> ·
+  <a href="https://gitee.com/jewey/glimnote">Gitee</a> ·
   <a href="https://github.com/jeweya/glimnote">GitHub</a>
 </p>
 
@@ -144,6 +145,14 @@ npm run release:verify # 校验 app.asar 是否带自动更新组件、与 lates
 更细的打包与更新源说明见 [docs/mydoc/06-桌面端打包与发布.md](docs/mydoc/06-桌面端打包与发布.md)。
 
 桌面端首次启动会在「文档」下创建 `glimnote` 文件夹，所有笔记都是普通文件，可以随时备份或用其它编辑器打开。
+
+## 仓库地址
+
+- GitHub：<https://github.com/jeweya/glimnote>
+- Gitee：<https://gitee.com/jewey/glimnote>
+- GitCode：<https://gitcode.com/jewey/glimnote>（Windows 安装包与自动更新清单发布在这里，客户端检查更新也走这个仓库）
+
+下载安装包请到 GitCode 的 [Releases](https://gitcode.com/jewey/glimnote/releases) 页面。
 
 ## 技术栈
 
