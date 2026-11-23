@@ -9,6 +9,8 @@ interface Props {
   y: number;
   onPick: (time: string) => void;
   onClose: () => void;
+  /** 输入框里每改出一个合法时间就同步一次（日期弹窗合并模式用来实时回填） */
+  onDraft?: (time: string) => void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -33,7 +35,7 @@ function nearestIndex(time?: string) {
  * 时和分分开两个输入框，中间的冒号只是显示，用户不用自己敲。
  * 点击某一档立即生效；打开时自动滚到当前值（没有值就滚到现在的时刻）。
  */
-export function TimePicker({ value, x, y, onPick, onClose }: Props) {
+export function TimePicker({ value, x, y, onPick, onClose, onDraft }: Props) {
   const tr = useT();
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -114,6 +116,14 @@ export function TimePicker({ value, x, y, onPick, onClose }: Props) {
     if (readTime()) commit(false);
   };
 
+  // 手输过程中把合法值同步给外层，避免手输后直接点「确定」时读到旧值
+  useEffect(() => {
+    const next = readTime();
+    if (next) onDraft?.(next);
+    // 只跟两个输入框走；onDraft 每次渲染都是新函数，不进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hour, minute]);
+
   return (
     <div
       className="time-pop"
@@ -124,9 +134,12 @@ export function TimePicker({ value, x, y, onPick, onClose }: Props) {
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault();
+          // 嵌在日期弹窗里时，别让 Esc 顺带把整个日期弹窗也关掉
+          e.stopPropagation();
           onClose();
         } else if (e.key === 'Enter') {
           e.preventDefault();
+          e.stopPropagation();
           commit(true);
         }
       }}

@@ -21,7 +21,7 @@ const fsp = require('node:fs/promises');
 const { registerGitProxy } = require('./git-proxy.cjs');
 const logFile = require('./log-file.cjs');
 const { moveRepoDir } = require('./migrate.cjs');
-const { registerAiProxy, registerWebhookProxy } = require('./ai-proxy.cjs');
+const { registerAiProxy, registerWebhookProxy, registerHolidayProxy } = require('./ai-proxy.cjs');
 const { createMcpHttpController, DEFAULT_PORT: MCP_HTTP_PORT } = require('./mcp-http.cjs');
 const { createCredentialStore } = require('./credentials.cjs');
 const { createConfigStore } = require('./config-file.cjs');
@@ -3159,6 +3159,8 @@ if (autostartSetupArg) {
     registerAiProxy(ipcMain, net, (level, msg) => logFile.write('ai', level, msg));
     // 企业微信 / 飞书 / 钉钉的群机器人同样受跨域限制
     registerWebhookProxy(ipcMain, net, (level, msg) => logFile.write('notify', level, msg));
+    // 节假日表放在 GitCode raw 上，同样由主进程代发 GET
+    registerHolidayProxy(ipcMain, net, (level, msg) => logFile.write('holiday', level, msg));
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
     // 先清掉旧版本留在本机配置里的 Service Worker 再开窗口，否则第一屏仍会
     // 先走一遍「加载失败 → 清缓存 → 重试」，浮窗也会跟着空白。

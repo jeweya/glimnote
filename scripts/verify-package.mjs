@@ -59,10 +59,7 @@ try {
   fail('找不到 @electron/asar。先运行 npm install；它通常随 electron-builder 一起安装。');
 }
 
-const asarPath = path.resolve(
-  root,
-  argValue('asar') || path.join('release', 'win-unpacked', 'resources', 'app.asar'),
-);
+const asarPath = path.resolve(root, argValue('asar') || path.join('release', 'win-unpacked', 'resources', 'app.asar'));
 const installerPath = path.resolve(
   root,
   argValue('installer') || path.join('release', `Glimnote-Setup-${version}.exe`),
@@ -147,15 +144,16 @@ if (packagedPkg.main !== pkg.main) {
 }
 ok(`应用版本 / 名称 / 入口与 package.json 一致（${version}）`);
 
-// 安装器脚本里的版本号也要一并检查，避免安装包文件名和程序版本各写各的
+// 安装器版本号统一来自 package.json（打包脚本通过 -DAPP_VERSION 传入），
+// 安装脚本里不允许再写死一份，避免两处版本各写各的。
 const nsiPath = path.join(root, 'build', 'installer.nsi');
 try {
   const nsi = await fsp.readFile(nsiPath, 'utf8');
   const hit = /!define\s+APP_VERSION\s+"([^"]+)"/.exec(nsi);
-  if (hit && hit[1] !== version) {
-    fail(`build/installer.nsi 的 APP_VERSION 是 ${hit[1]}，和 package.json 的 ${version} 不一致。`);
+  if (hit) {
+    fail(`build/installer.nsi 里写死了 APP_VERSION ${hit[1]}；版本号只放在 package.json，由打包脚本传给 makensis。`);
   }
-  if (hit) ok(`build/installer.nsi 的 APP_VERSION 与 package.json 一致（${version}）`);
+  ok('安装器版本号统一取自 package.json');
 } catch {
   warn('没读到 build/installer.nsi，跳过安装器版本号检查。');
 }
@@ -176,10 +174,7 @@ try {
 }
 
 // latest.yml：有就严格比对，避免清单和安装包对不上导致客户端 404 / 校验失败
-const manifestCandidates = [
-  path.join(releaseDir, `v${version}`, 'latest.yml'),
-  path.join(releaseDir, 'latest.yml'),
-];
+const manifestCandidates = [path.join(releaseDir, `v${version}`, 'latest.yml'), path.join(releaseDir, 'latest.yml')];
 let manifestPath = '';
 for (const candidate of manifestCandidates) {
   try {

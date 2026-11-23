@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://gitcode.com/jewey/glimnote/issues"
   },
-  "version": "0.1.20",
+  "version": "0.1.22",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
@@ -25,7 +25,10 @@
     "web": "vite build && vite preview",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5174 && electron . --dev\"",
     "electron:start": "vite build && electron .",
-    "electron:build": "vite build && electron-builder --win --x64 && node scripts/verify-package.mjs",
+    "electron:build": "npm run package:win",
+    "package:win": "vite build && electron-builder --win --x64 --dir && node scripts/build-installer.mjs && node scripts/verify-package.mjs",
+    "installer": "node scripts/build-installer.mjs",
+    "release:win": "npm run package:win && npm run release:manifest && npm run release:verify && npm run release:folder",
     "release:verify": "node scripts/verify-package.mjs",
     "release:manifest": "node scripts/update-manifest.mjs",
     "release:folder": "node scripts/release-folder.mjs",

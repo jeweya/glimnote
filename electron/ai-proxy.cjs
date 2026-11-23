@@ -133,4 +133,37 @@ function registerWebhookProxy(ipcMain, net, log = () => {}) {
   });
 }
 
-module.exports = { registerAiProxy, registerWebhookProxy, assertUrl };
+/**
+ * 节假日表代理：GitCode raw 同样不带 CORS 头，桌面端由主进程代发 GET。
+ * 只允许拉取 GitCode 的 raw 文件，响应上限 1MB，避免被误用成通用下载器。
+ */
+function registerHolidayProxy(ipcMain, net, log = () => {}) {
+  ipcMain.handle('holiday:fetch', async (_e, raw) => {
+    const url = assertUrl(raw);
+    if (url.hostname !== 'raw.gitcode.com') throw new Error('节假日数据只能从 GitCode 拉取');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await net.fetch(url.toString(), {
+        headers: { Accept: 'application/json', 'User-Agent': 'Glimnote' },
+        signal: controller.signal,
+      });
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength > 1024 * 1024) throw new Error('节假日数据过大，已停止读取');
+      const text = buf.toString('utf8');
+      log('info', `节假日数据 ${url.host}${url.pathname} → ${res.status} · ${buf.byteLength}B`);
+      return { status: res.status, text };
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        log('warn', `节假日数据请求超时：${url.host}`);
+        throw new Error('节假日数据请求超时');
+      }
+      log('warn', `节假日数据请求失败 ${url.host}：${(e && e.message) || e}`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+}
+
+module.exports = { registerAiProxy, registerWebhookProxy, registerHolidayProxy, assertUrl };

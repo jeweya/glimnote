@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('glimnote', {
   aiAbort: (id) => invoke('ai:abort', id),
   // 群机器人 Webhook 也由主进程代发，绕开浏览器跨域限制
   webhookSend: (req) => invoke('webhook:send', req),
+  // 节假日表同样走主进程（GitCode raw 不带 CORS 头）
+  holidayFetch: (url) => invoke('holiday:fetch', url),
   getPrefs: () => invoke('app:get-prefs'),
   // MCP（WorkBuddy 等 AI 客户端）脚本位置与仓库根目录，供设置 → 集成展示
   mcpInfo: () => invoke('app:mcp-info'),

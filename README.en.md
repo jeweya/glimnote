@@ -115,7 +115,8 @@ Desktop:
 ```bash
 npm run electron:dev   # start Vite and Electron together (dev hot reload)
 npm run electron:start # run the built app in a desktop window
-npm run electron:build # build the Windows installer into release/
+npm run package:win    # build the Windows installer into release/
+npm run release:win    # full release: package + latest.yml + verify + archive to release/v<version>/
 ```
 
 MCP service (the desktop app can start the HTTP server with one click in Settings; the commands below are for development or stdio-only clients):
@@ -131,8 +132,16 @@ Checks and tests:
 npm run typecheck      # TypeScript type check
 npm run test:mcp       # MCP smoke tests (HTTP / ideas & journal / mini-apps)
 npm run test:ui        # settings UI walkthrough (Playwright; run npx playwright install chromium first)
-npm run release:verify # check that app.asar ships electron-updater and matches latest.yml (also runs during electron:build)
+npm run release:verify # check that app.asar ships electron-updater and matches latest.yml (also runs during package:win)
 ```
+
+### Releasing: bump the version and write release notes
+
+1. Bump the version: edit `version` in `package.json` only (or run `npm version 0.1.22 --no-git-tag-version`, which also updates `package-lock.json`). It is the single source of truth — the installer filename, app version and the version in `latest.yml` all come from it, so `build/installer.nsi` stays untouched.
+2. Write release notes: add a `## 0.1.22` section at the top of `CHANGELOG.md`, grouped under headings such as `### 新增` / `### 优化` / `### 修复` / `### 打包`. `npm run release:folder` extracts that section into `release/v0.1.22/更新说明.md` automatically.
+3. Package and publish: run `npm run release:win` (package → generate `latest.yml` → verify → archive to `release/v0.1.22/`), then upload the installer, `latest.yml` and `更新说明.md` from that folder to a GitCode Release (tag `v0.1.22`) and publish it.
+
+See [docs/mydoc/06-桌面端打包与发布.md](docs/mydoc/06-桌面端打包与发布.md) for the full packaging and update-feed details.
 
 On first launch, the desktop app creates a `glimnote` folder under Documents. Every note is a plain file you can back up or open in any editor at any time.
 

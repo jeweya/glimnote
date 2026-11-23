@@ -247,6 +247,8 @@ export interface DesktopBridge {
     headers?: Record<string, string>;
     body?: string;
   }) => Promise<AiHttpResponse>;
+  /** 节假日表：GitCode raw 不带 CORS 头，桌面端由主进程代发 GET，返回状态码与正文 */
+  holidayFetch?: (url: string) => Promise<{ status: number; text: string }>;
   getPrefs: () => Promise<{ closeToTray?: boolean }>;
   /** 是否随系统登录自动启动；安装版才有意义 */
   getLoginItem?: () => Promise<LoginItemState>;

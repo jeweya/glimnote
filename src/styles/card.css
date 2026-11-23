@@ -336,7 +336,9 @@ html[data-window='card'] ::-webkit-scrollbar-thumb:hover {
   box-shadow: var(--shadow-1);
 }
 
-.card-add:focus-within {
+/* 日期 / 时间弹窗开着时保持「正在输入」的高亮 */
+.card-add:focus-within,
+.card-add.pop-open {
   background: var(--surface-page);
   border-color: var(--accent);
   box-shadow:

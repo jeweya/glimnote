@@ -73,9 +73,10 @@ import { TaskRemindPopover } from './TaskRemindPopover';
 import { categoryColor, TASK_CATEGORY_ALL } from '../lib/taskCategories';
 import { useT } from '../lib/i18n';
 
+// 今天放在最前，已过期紧随其后：先看今天要做什么，再补上漏掉的事
 const GROUP_LABELS: { key: keyof ReturnType<typeof groupTasks>; label: string }[] = [
-  { key: 'overdue', label: '已过期' },
   { key: 'today', label: '今天' },
+  { key: 'overdue', label: '已过期' },
   { key: 'week', label: '7 天内' },
   { key: 'month', label: '1 个月内' },
   { key: 'later', label: '以后' },
@@ -123,6 +124,11 @@ export function TaskPanel() {
   const [addFocused, setAddFocused] = useState(false);
   // 快速添加默认落在今天：大多数待办是「今天要做的事」，不想排期时再点日期清除
   const [due, setDue] = useState<string | undefined>(() => dateKey());
+  // 到点提醒时间，可只选日期不选时间；选时间时如果没有日期，自动落到今天
+  const [dueTime, setDueTime] = useState<string | undefined>();
+  // 手动改过日期 / 时间后，以手动选择为准，标题里的自然语言不再覆盖它
+  const [dueTouched, setDueTouched] = useState(false);
+  const [timeTouched, setTimeTouched] = useState(false);
   const [priority, setPriority] = useState<TaskPriority>('normal');
   const [flashId, setFlashId] = useState<string | null>(null);
   const [pendingDone, setPendingDone] = useState<Set<string>>(new Set());
@@ -265,10 +271,18 @@ export function TaskPanel() {
         .filter(Boolean)
         .join(' · ');
 
+  // 边输入边解析：标题里出现「明天下午 3 点」时，日期和时间胶囊会立刻跟着变
+  const quickParsed = useMemo(
+    () => (title.trim() ? parseQuickTaskInput(title, now) : null),
+    [title, now],
+  );
+  const quickDue = dueTouched ? due : quickParsed?.due ?? due;
+  const quickDueTime = timeTouched ? dueTime : quickParsed?.dueTime ?? dueTime;
+
   const focusAdd = () => addRef.current?.focus();
 
-  // 有焦点或有草稿就展开：至少两行，长标题自动长高，超过约五行改为内部滚动
-  const addExpanded = addFocused || title.trim().length > 0;
+  // 有焦点、有草稿或日期弹窗开着就展开：至少两行，长标题自动长高，超过约五行改为内部滚动
+  const addExpanded = addFocused || title.trim().length > 0 || Boolean(quickDate);
   useEffect(() => {
     const el = addRef.current;
     if (!el) return;
@@ -283,11 +297,14 @@ export function TaskPanel() {
   const commitQuick = async () => {
     const text = title.trim();
     if (!text) return;
-    // 结尾带 18:00 就当作今天 18:00 提醒；已经选了别的日期就沿用那个日期
-    const quick = parseQuickTaskInput(text);
+    // 标题里的「明天下午 3 点」「周五 18:00」会自动变成日期与提醒时间；
+    // 手动点过选择器的话，以手动选择为准
+    const quick = parseQuickTaskInput(text, now);
+    const finalTime = timeTouched ? dueTime : quick.dueTime ?? dueTime;
+    const finalDue = dueTouched ? due : quick.due ?? due ?? (finalTime ? dateKey(now) : undefined);
     const task = await createTask(quick.title, {
-      due: due ?? (quick.dueTime ? dateKey(now) : undefined),
-      dueTime: quick.dueTime,
+      due: finalDue,
+      dueTime: finalTime,
       priority,
       // 正在看某个分类时，新条目直接归进去——省掉「先添加再归类」这一步
       category: categoryFilter.kind === 'cat' ? categoryFilter.name : undefined,
@@ -301,9 +318,12 @@ export function TaskPanel() {
       clearFilters();
     }
     setTitle('');
-    // 日期与优先级只对刚录入的那条生效，否则连续录入会悄悄继承上一条的设置；
+    // 日期、时间与优先级只对刚录入的那条生效，否则连续录入会悄悄继承上一条的设置；
     // 日期回到「今天」，保持快速录入的默认预期
     setDue(dateKey());
+    setDueTime(undefined);
+    setDueTouched(false);
+    setTimeTouched(false);
     setPriority('normal');
     setFlashId(task.id);
     requestAnimationFrame(() => addRef.current?.focus());
@@ -704,7 +724,7 @@ export function TaskPanel() {
       </div>
 
       <div
-        className={cn('task-quick', addExpanded && 'expanded')}
+        className={cn('task-quick', addExpanded && 'expanded', quickDate && 'pop-open')}
         onBlur={(e) => {
           // 离开整张卡片（点日期 / 优先级按钮仍然算在卡片里）才收起
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAddFocused(false);
@@ -718,8 +738,13 @@ export function TaskPanel() {
           value={title}
           placeholder={tr('添加待办，回车保存')}
           aria-label={tr('添加待办')}
-          title={tr('输入标题后回车保存；在结尾写日期或 18:00 这样的时间，会自动识别为截止时间')}
-          onChange={(e) => setTitle(e.target.value.replace(/\n/g, ' '))}
+          title={tr('输入标题后回车保存；写「明天下午 3 点」「周五 18:00」会自动识别为截止时间')}
+          onChange={(e) => {
+            setTitle(e.target.value.replace(/\n/g, ' '));
+            // 换了文字就重新信任标题里的日期 / 时间识别
+            setDueTouched(false);
+            setTimeTouched(false);
+          }}
           onFocus={() => setAddFocused(true)}
           onCompositionStart={() => {
             composing.current = true;
@@ -738,26 +763,39 @@ export function TaskPanel() {
           }}
         />
         {addExpanded && <span className="tq-hint">{tr('回车保存 · Esc 取消')}</span>}
-        <button
-          className={cn('quick-chip', due && 'on')}
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setQuickDate({ x: r.left, y: r.bottom + 6 });
-          }}
-          title={tr('设置截止日期')}
-        >
-          {due ? dueLabel(due, now) : tr('日期')}
-        </button>
-        {due && (
-          <button
-            type="button"
-            className="quick-chip-clear"
-            title={tr('清除日期')}
-            aria-label={tr('清除日期')}
-            onClick={() => setDue(undefined)}
-          >
-            <X size={12} />
-          </button>
+        {/* 收起时只留一行输入，日期胶囊等展开后再出现 */}
+        {addExpanded && (
+          <>
+            <button
+              className={cn('quick-chip', (quickDue || quickDueTime) && 'on')}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setQuickDate({ x: r.left, y: r.bottom + 6 });
+              }}
+              title={tr('设置截止日期与到点提醒')}
+            >
+              {quickDue
+                ? `${dueLabel(quickDue, now)}${quickDueTime ? ` ${quickDueTime}` : ''}`
+                : quickDueTime || tr('日期')}
+            </button>
+            {(quickDue || quickDueTime) && (
+              <button
+                type="button"
+                className="quick-chip-clear"
+                title={tr('清除日期与时间')}
+                aria-label={tr('清除日期与时间')}
+                onClick={() => {
+                  // 日期和时间在同一个弹窗里设置，一次清干净
+                  setDue(undefined);
+                  setDueTouched(true);
+                  setDueTime(undefined);
+                  setTimeTouched(true);
+                }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </>
         )}
         <button
           className={cn('quick-chip', priority !== 'normal' && 'on')}
@@ -996,14 +1034,36 @@ export function TaskPanel() {
 
       {quickDate && (
         <DatePicker
-          value={due}
+          value={quickDue}
+          time={quickDueTime}
           x={quickDate.x}
           y={quickDate.y}
           onPick={(next) => {
             setDue(next);
-            setQuickDate(null);
+            setDueTouched(true);
+            // 日期被清除时，到点提醒也没有意义了
+            if (!next) {
+              setDueTime(undefined);
+              setTimeTouched(true);
+            }
+            // 选完把焦点还给输入框，卡片重新展开，回车能接着保存
+            requestAnimationFrame(() => addRef.current?.focus());
           }}
-          onClose={() => setQuickDate(null)}
+          onTimePick={(next) => {
+            setDueTime(next);
+            setTimeTouched(true);
+            // 只填时间、没选日期时落到今天
+            if (next && !quickDue) {
+              setDue(dateKey(now));
+              setDueTouched(true);
+            }
+          }}
+          onClose={() => {
+            setQuickDate(null);
+            // 弹窗里点确定 / 取消 / 按 Esc 关掉后，焦点还给输入框，别显示成未聚焦
+            requestAnimationFrame(() => addRef.current?.focus());
+          }}
+          onOutside={() => setQuickDate(null)}
         />
       )}
 

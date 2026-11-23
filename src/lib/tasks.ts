@@ -1,6 +1,7 @@
 import { parseFrontmatter, stripFrontmatter } from './markdown';
 import { t } from './i18n';
 import { pad, parseDateKey, dateKey } from './utils';
+import { nextChinaWorkday } from './chinaWorkdays';
 
 /** 四态：待整理（时间未定）/ 待办 / 跟进中 / 已完成，见 docs/11 4.5 */
 export type TaskStatus = 'inbox' | 'todo' | 'doing' | 'done';
@@ -38,9 +39,14 @@ export function normalizeNotifyChannels(value: unknown): TaskNotifyChannel[] {
 
 export const OPEN_STATUSES: OpenStatus[] = ['inbox', 'todo', 'doing'];
 
-/** 循环频率；循环任务必须有截止日期，下一次由本文件里的算法推导 */
-export type TaskRepeat = 'daily' | 'weekly' | 'monthly' | 'yearly';
+/**
+ * 循环频率；循环任务必须有截止日期，下一次由本文件里的算法推导。
+ * workday = 每天循环 + 跳过节假日（界面上的「跳过节假日」开关），
+ * 跳过周末与法定节假日，调休补班日照常提醒。
+ */
+export type TaskRepeat = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'workday';
 
+/** 循环弹窗里的频率 tab；workday 不再单独占一格，由「每天 + 跳过节假日」表达 */
 export const TASK_REPEATS: TaskRepeat[] = ['daily', 'weekly', 'monthly', 'yearly'];
 
 export const REPEAT_LABEL: Record<TaskRepeat, string> = {
@@ -48,6 +54,7 @@ export const REPEAT_LABEL: Record<TaskRepeat, string> = {
   weekly: '每周',
   monthly: '每月',
   yearly: '每年',
+  workday: '工作日',
 };
 
 /** ISO：1=周一 … 7=周日，与保存进文件的口径一致 */
@@ -173,7 +180,11 @@ export function isTaskConflict(task: Task) {
 }
 
 function normalizeRepeat(value: unknown): TaskRepeat | undefined {
-  return value === 'daily' || value === 'weekly' || value === 'monthly' || value === 'yearly'
+  return value === 'daily' ||
+    value === 'weekly' ||
+    value === 'monthly' ||
+    value === 'yearly' ||
+    value === 'workday'
     ? value
     : undefined;
 }
@@ -456,6 +467,9 @@ function makeDateKey(year: number, month0: number, day: number) {
 function stepRepeat(task: Task, cursorKey: string, anchorKey: string, every: number): string | null {
   if (task.repeat === 'daily') return addDaysKey(cursorKey, every);
 
+  // 法定工作日：跳过周末与节假日，调休补班日照常
+  if (task.repeat === 'workday') return nextChinaWorkday(cursorKey);
+
   if (task.repeat === 'weekly') {
     const cursor = parseDateKey(cursorKey);
     const anchor = parseDateKey(anchorKey);
@@ -538,6 +552,8 @@ export function repeatSummary(task: Task): string {
   if (task.repeat === 'daily') {
     return every > 1 ? `每 ${every} 天` : '每天';
   }
+
+  if (task.repeat === 'workday') return '每个工作日';
 
   if (task.repeat === 'weekly') {
     const dueDate = task.due ? parseDateKey(task.due) : null;
@@ -737,17 +753,211 @@ export function isTimeKey(value: string | undefined) {
   return Boolean(value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value));
 }
 
+/* ---------- 快速录入：自然语言日期 / 时间 ---------- */
+
+const CN_NUM: Record<string, number> = {
+  零: 0,
+  一: 1,
+  两: 2,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+};
+
+/** 只覆盖日常输入里的中文数字（1–99），不追求完整中文数字语法 */
+function parseCnNumber(text: string): number | null {
+  if (/^\d{1,3}$/.test(text)) return Number(text);
+  if (text === '十') return 10;
+  if (text.length === 1) return CN_NUM[text] ?? null;
+  const m = /^([一二两三四五六七八九])?十([一二三四五六七八九])?$/.exec(text);
+  if (!m) return null;
+  return (m[1] ? CN_NUM[m[1]] : 1) * 10 + (m[2] ? CN_NUM[m[2]] : 0);
+}
+
+function quickWeekdayKey(now: Date, iso: number, weekOffset: number) {
+  const today = todayStart(now);
+  const todayIso = ((today.getDay() + 6) % 7) + 1;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (todayIso - 1) + weekOffset * 7);
+  const target = new Date(monday);
+  target.setDate(monday.getDate() + (iso - 1));
+  // 没写「下周」时，已经过去的周几顺延到下周；写了「下周」「下下周」则始终在未来
+  if (weekOffset === 0 && target.getTime() < today.getTime()) target.setDate(target.getDate() + 7);
+  return dateKey(target);
+}
+
+function quickMonthDayKey(now: Date, year: number | undefined, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  let target = new Date(year ?? now.getFullYear(), month - 1, day);
+  // 2 月 30 日这类不存在的日期直接放弃识别
+  if (target.getMonth() !== month - 1 || target.getDate() !== day) return null;
+  // 不写年份且日期已过：按下一年的同一天理解
+  if (year === undefined && target.getTime() < todayStart(now).getTime()) {
+    target = new Date(target.getFullYear() + 1, month - 1, day);
+    if (target.getMonth() !== month - 1 || target.getDate() !== day) return null;
+  }
+  return dateKey(target);
+}
+
+/** 上午 / 下午 / 晚上等时段换算成 24 小时制 */
+function applyDayPeriod(hour: number, period?: string) {
+  if (!period) return hour;
+  if (period === '凌晨') return hour === 12 ? 0 : hour;
+  if (period === '中午') return hour < 11 ? hour + 12 : hour;
+  if (period === '下午' || period === '傍晚') return hour < 12 ? hour + 12 : hour;
+  if (period === '晚上' || period === '夜里' || period === '夜间') {
+    if (hour === 12) return 0;
+    return hour < 12 ? hour + 12 : hour;
+  }
+  // 早上 / 早晨 / 上午
+  return hour;
+}
+
+/** 把一段匹配从输入里挖掉，最后统一收拢空白 */
+function cutText(text: string, start: number, end: number) {
+  return `${text.slice(0, start)} ${text.slice(end)}`;
+}
+
+function tidyTitle(text: string) {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,，。；;、:：]+|[\s,，。；;、:：]+$/g, '')
+    .trim();
+}
+
+export interface QuickTaskParse {
+  /** 去掉日期 / 时间片段后的标题 */
+  title: string;
+  /** 识别出的截止日期 YYYY-MM-DD */
+  due?: string;
+  /** 识别出的提醒时间 HH:mm */
+  dueTime?: string;
+}
+
 /**
- * 快速录入时允许把时间写在结尾：「交周报 18:00」。
- * 只认整串末尾的合法时间，标题里正常出现的数字不会被误吞。
+ * 快速录入时识别自然语言日期与时间：
+ * - 今天 / 明天 / 后天 / 大后天、周一 / 下周三、3 天后、一周后；
+ * - 3 月 5 日、2027 年 3 月 5 日、2027-03-05；
+ * - 18:00、下午 3 点、晚上 8 点半。
+ * 识别出的片段会从标题里移除；整句都是日期时间时保持原样，避免生成空标题。
  */
-export function parseQuickTaskInput(raw: string) {
-  const text = raw.trim();
-  const m = /(^|\s)([01]?\d|2[0-3]):([0-5]\d)$/.exec(text);
-  if (!m) return { title: text };
-  const title = text.slice(0, m.index).trim();
-  if (!title) return { title: text };
-  return { title, dueTime: `${pad(Number(m[2]))}:${m[3]}` };
+export function parseQuickTaskInput(raw: string, now = new Date()): QuickTaskParse {
+  const original = raw.trim();
+  if (!original) return { title: '' };
+
+  let text = original;
+  let due: string | undefined;
+  let dueTime: string | undefined;
+
+  // 「今晚 8 点」先补成「今天晚上 8 点」，日期与时段就都能按常规规则识别
+  text = text
+    .replace(/今晚/g, '今天晚上')
+    .replace(/明晚/g, '明天晚上')
+    .replace(/明早/g, '明天早上');
+
+  const tryDate = (re: RegExp, resolve: (m: RegExpExecArray) => string | null) => {
+    if (due) return;
+    const m = re.exec(text);
+    if (!m) return;
+    const key = resolve(m);
+    if (!key) return;
+    due = key;
+    text = cutText(text, m.index, m.index + m[0].length);
+  };
+
+  // 带年份的完整日期优先，避免被「3 月 5 日」抢先截走
+  tryDate(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/, (m) =>
+    quickMonthDayKey(now, Number(m[1]), Number(m[2]), Number(m[3])),
+  );
+  tryDate(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)/, (m) =>
+    quickMonthDayKey(now, Number(m[1]), Number(m[2]), Number(m[3])),
+  );
+  tryDate(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/, (m) =>
+    quickMonthDayKey(now, undefined, Number(m[1]), Number(m[2])),
+  );
+  tryDate(/(今天|今日|明天|明日|后天|大后天)/, (m) => {
+    const offset = m[1] === '今天' || m[1] === '今日' ? 0 : m[1] === '明天' || m[1] === '明日' ? 1 : m[1] === '后天' ? 2 : 3;
+    return addDaysKey(dateKey(now), offset);
+  });
+  tryDate(/(本|这|下下|下)?\s*(?:星期|礼拜|周)\s*([一二三四五六日天])/, (m) => {
+    const prefix = m[1];
+    const weekOffset = prefix === '下' ? 1 : prefix === '下下' ? 2 : 0;
+    const iso = m[2] === '天' || m[2] === '日' ? 7 : ['一', '二', '三', '四', '五', '六'].indexOf(m[2]) + 1;
+    return quickWeekdayKey(now, iso, weekOffset);
+  });
+  tryDate(/(\d{1,3}|[一二两三四五六七八九十]{1,2})\s*天(?:之)?后/, (m) => {
+    const n = parseCnNumber(m[1]);
+    return n !== null && n >= 0 && n <= 3650 ? addDaysKey(dateKey(now), n) : null;
+  });
+  tryDate(/(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*(?:个)?(?:星期|礼拜|周)(?:之)?后/, (m) => {
+    const n = parseCnNumber(m[1]);
+    return n !== null && n >= 0 && n <= 520 ? addDaysKey(dateKey(now), n * 7) : null;
+  });
+  tryDate(/(下|下下)(?:个)?月\s*(\d{1,2})\s*[日号]/, (m) => {
+    const base = new Date(now.getFullYear(), now.getMonth() + (m[1] === '下下' ? 2 : 1), 1);
+    return quickMonthDayKey(now, base.getFullYear(), base.getMonth() + 1, Number(m[2]));
+  });
+
+  const setTime = (hour: number, minute: number) => {
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return false;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+    dueTime = `${pad(hour)}:${pad(minute)}`;
+    return true;
+  };
+
+  // 先处理带时段前缀的写法：「下午 3 点」「晚上 8 点半」「下午三点」
+  if (!dueTime) {
+    const m = /(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|夜间)\s*(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*(?:点|时|[:：])\s*(半|(\d{1,2})\s*分?)?/.exec(text);
+    if (m) {
+      const hour = parseCnNumber(m[2]);
+      const minute = m[3] === '半' ? 30 : m[3] ? Number(m[4]) : 0;
+      if (hour !== null && setTime(applyDayPeriod(hour, m[1]), minute)) {
+        text = cutText(text, m.index, m.index + m[0].length);
+      }
+    }
+  }
+
+  // 「18:00」「18：30」
+  if (!dueTime) {
+    const m = /(?:^|[^\d])([01]?\d|2[0-3])[:：]([0-5]\d)(?!\d)/.exec(text);
+    if (m) {
+      const start = m.index + m[0].indexOf(m[1]);
+      const end = m.index + m[0].length;
+      if (setTime(Number(m[1]), Number(m[2]))) text = cutText(text, start, end);
+    }
+  }
+
+  // 「3 点半」「3 点 30 分」——有分钟数时不会误伤「3 点建议」
+  if (!dueTime) {
+    const m = /(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*(?:点|时)\s*(半|(\d{1,2})\s*分)/.exec(text);
+    if (m) {
+      const hour = parseCnNumber(m[1]);
+      const minute = m[2] === '半' ? 30 : Number(m[3]);
+      if (hour !== null && setTime(hour, minute)) text = cutText(text, m.index, m.index + m[0].length);
+    }
+  }
+
+  // 裸「3 点」：只有写在结尾、或同一句里已经识别出日期时才认，降低误判
+  if (!dueTime) {
+    const re = due
+      ? /(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*(?:点|时)/
+      : /(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*(?:点|时)(?=\s*$|[\s,，。；;、])/;
+    const m = re.exec(text);
+    if (m) {
+      const hour = parseCnNumber(m[1]);
+      if (hour !== null && setTime(hour, 0)) text = cutText(text, m.index, m.index + m[0].length);
+    }
+  }
+
+  const title = tidyTitle(text);
+  // 整句都是日期 / 时间（如只输入「明天」）时保留原文当标题，但识别结果照常生效
+  if (!title) return { title: original, due, dueTime };
+  return { title, due, dueTime };
 }
 
 /**
@@ -786,7 +996,7 @@ function sortGroup(list: Task[]) {
 
 const DONE_WINDOW = 14 * 86400000;
 
-/** 已过期 / 今天 / 7 天内 / 1 个月内 / 以后 / 无日期 / 待整理 / 已完成 */
+/** 今天 / 已过期 / 7 天内 / 1 个月内 / 以后 / 无日期 / 待整理 / 已完成 */
 export function groupTasks(tasks: Task[], now = new Date()): TaskGroups {
   const today = todayStart(now);
   const weekEnd = nearWeekEndOf(now);

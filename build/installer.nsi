@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 SetCompressor zlib
 
 !include "MUI2.nsh"
@@ -9,9 +9,10 @@ SetCompressor zlib
 
 !define APP_NAME "萤光笔记"
 !define APP_ID "Glimnote"
-; 版本号默认与 package.json 保持一致，可用 makensis -DAPP_VERSION=x.y.z 覆盖
+; 版本号只有一个来源：package.json。打包脚本 scripts/build-installer.mjs 读取后
+; 通过 makensis -DAPP_VERSION=x.y.z 传进来，这里不写默认值，免得两处版本各写各的。
 !ifndef APP_VERSION
-  !define APP_VERSION "0.1.20"
+  !error "APP_VERSION 未定义：请用 npm run package:win 或 npm run installer 打包（版本号取自 package.json）。"
 !endif
 ; VIProductVersion 只接受四段纯数字，预发版（0.1.19-beta.1）要单独传去掉后缀的数字版本：
 ;   makensis -DAPP_VERSION=0.1.19-beta.1 -DAPP_VERSION_NUM=0.1.19 ...
@@ -19,7 +20,10 @@ SetCompressor zlib
   !define APP_VERSION_NUM "${APP_VERSION}"
 !endif
 !define APP_EXE "Glimnote.exe"
-!define SRC_DIR "../release/win-unpacked"
+; 待打包的解包目录，默认 electron-builder 的产物，可用 makensis -DSRC_DIR=... 覆盖
+!ifndef SRC_DIR
+  !define SRC_DIR "../release/win-unpacked"
+!endif
 
 ; 完成页：是否开机启动 / 立即运行
 Var FinishAutostart
@@ -29,7 +33,11 @@ Var FinishRun
 Var RunningActive
 
 Name "${APP_NAME}"
-OutFile "../release/Glimnote-Setup-${APP_VERSION}.exe"
+; 安装包输出路径，可用 makensis -DOUTFILE=... 覆盖（例如先写到临时目录再拷贝）
+!ifndef OUTFILE
+  !define OUTFILE "../release/Glimnote-Setup-${APP_VERSION}.exe"
+!endif
+OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\${APP_ID}"
 InstallDirRegKey HKCU "Software\${APP_ID}" "InstallDir"
 RequestExecutionLevel user

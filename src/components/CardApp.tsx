@@ -37,7 +37,6 @@ import {
   groupTasks,
   isOpenTask,
   parseQuickTaskInput,
-  taskDueAt,
   taskTitle,
   type Task,
 } from '../lib/tasks';
@@ -61,7 +60,7 @@ import { applyStoredTheme } from '../lib/theme';
 import { t, useT } from '../lib/i18n';
 import { log } from '../lib/log';
 import { openAppInNewWindow, openNoteInNewWindow } from '../lib/windowMode';
-import { cn, dateKey, parseDateKey } from '../lib/utils';
+import { cn, dateKey } from '../lib/utils';
 import { CardLockedView, useCardLock } from './CardLocked';
 import { DatePicker } from './DatePicker';
 import { useCardWindowDrag } from './useCardWindowDrag';
@@ -84,9 +83,10 @@ const COLLAPSED_W = 260;
 /** 可以一路调到 0：完全隐形时把鼠标移回原位置（或按热键）就会恢复 */
 const OPACITY_MIN = 0;
 
-/** 浮窗里的待办分组：今天（含过期）在最前，其余按时间远近归类 */
+/** 浮窗里的待办分组：和主窗口一致，今天在前、已过期紧随其后，其余按时间远近归类 */
 const CARD_GROUPS = [
-  { key: 'focus', label: '今天' },
+  { key: 'today', label: '今天' },
+  { key: 'overdue', label: '已过期' },
   { key: 'week', label: '7 天内' },
   { key: 'month', label: '1 个月内' },
   { key: 'later', label: '以后' },
@@ -182,7 +182,12 @@ function shortcutView(
   }
   if (entry.type === 'view') {
     return {
-      title: entry.title || (HOME_VIEWS.find((v) => v.key === entry.target)?.label ? t(HOME_VIEWS.find((v) => v.key === entry.target)!.label) : '') || t('智能视图'),
+      title:
+        entry.title ||
+        (HOME_VIEWS.find((v) => v.key === entry.target)?.label
+          ? t(HOME_VIEWS.find((v) => v.key === entry.target)!.label)
+          : '') ||
+        t('智能视图'),
       sub: t('智能视图'),
       icon: entry.icon || 'grid',
       color,
@@ -220,14 +225,6 @@ function shortcutView(
   };
 }
 
-function dueSortMs(task: Task) {
-  if (!task.due) return Infinity;
-  const at = taskDueAt(task);
-  if (at) return at.getTime();
-  const d = parseDateKey(task.due);
-  return d ? d.getTime() + 86399999 : Infinity;
-}
-
 /**
  * 桌面浮窗的内容。
  *
@@ -260,6 +257,13 @@ export function CardApp() {
   const [taskDraft, setTaskDraft] = useState('');
   // 浮窗里的快速添加也改成点击展开：一行太窄，长标题只能左右滚
   const [addFocused, setAddFocused] = useState(false);
+  // 浮窗新增同样带日期 / 时间：默认今天，点芯片打开合并的日期时间弹窗
+  const [due, setDue] = useState<string | undefined>(() => dateKey());
+  const [dueTime, setDueTime] = useState<string | undefined>();
+  // 手动改过日期 / 时间后以手动选择为准，标题里的自然语言不再覆盖
+  const [dueTouched, setDueTouched] = useState(false);
+  const [timeTouched, setTimeTouched] = useState(false);
+  const [addDatePop, setAddDatePop] = useState<{ x: number; y: number } | null>(null);
   const [ideaDraft, setIdeaDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState('');
@@ -290,8 +294,12 @@ export function CardApp() {
   const bridge = desktop();
   const tr = useT();
 
-  // 聚焦或有草稿就展开：至少两行，标题再长就自动长高，约四行后内部滚动
-  const addExpanded = addFocused || taskDraft.trim().length > 0;
+  // 聚焦、有草稿或日期弹窗开着就展开：至少两行，标题再长就自动长高，约四行后内部滚动
+  const addExpanded = addFocused || taskDraft.trim().length > 0 || Boolean(addDatePop);
+  // 边输入边解析标题里的日期 / 时间，芯片跟着变；手动点过选择器就以手动为准
+  const quickParsed = useMemo(() => (taskDraft.trim() ? parseQuickTaskInput(taskDraft, now) : null), [taskDraft, now]);
+  const quickDue = dueTouched ? due : (quickParsed?.due ?? due);
+  const quickDueTime = timeTouched ? dueTime : (quickParsed?.dueTime ?? dueTime);
   useEffect(() => {
     const el = addRef.current;
     if (!el) return;
@@ -301,23 +309,20 @@ export function CardApp() {
   /** 标题栏拖动：普通形态和锁定占位共用同一套指针 → IPC 移动 */
   const startWindowDrag = useCardWindowDrag(bridge);
 
-  const say = useCallback(
-    (text: string, undoTarget?: () => Promise<void>, holdMs?: number, spin?: boolean) => {
-      setFlash(text);
-      setFlashBusy(Boolean(spin));
-      setUndo(undoTarget ? { run: undoTarget } : null);
-      window.clearTimeout(flashTimer.current);
-      flashTimer.current = window.setTimeout(
-        () => {
-          setFlash('');
-          setFlashBusy(false);
-          setUndo(null);
-        },
-        undoTarget ? 8000 : holdMs ?? 1800,
-      );
-    },
-    [],
-  );
+  const say = useCallback((text: string, undoTarget?: () => Promise<void>, holdMs?: number, spin?: boolean) => {
+    setFlash(text);
+    setFlashBusy(Boolean(spin));
+    setUndo(undoTarget ? { run: undoTarget } : null);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(
+      () => {
+        setFlash('');
+        setFlashBusy(false);
+        setUndo(null);
+      },
+      undoTarget ? 8000 : (holdMs ?? 1800),
+    );
+  }, []);
 
   const load = useCallback(async () => {
     // 首页配置读失败时只是这个 tab 空着，不能把待办 / 灵感一起打红
@@ -469,21 +474,16 @@ export function CardApp() {
 
   const today = dateKey(now);
   const openTasks = useMemo(() => tasks.filter(isOpenTask), [tasks]);
-  // 和主窗口待办列表同一套分组规则：过期 / 今天 / 7 天内 / 1 个月内 / 以后 / 无日期 / 待整理
+  // 和主窗口待办列表同一套分组规则：今天 / 已过期 / 7 天内 / 1 个月内 / 以后 / 无日期 / 待整理
   const groups = useMemo(() => groupTasks(tasks, now), [tasks, now]);
-  /** 今天这一组把「已过期」也算进来，过期的先排、看着最要紧 */
-  const focusTasks = useMemo(
-    () => [...groups.overdue, ...groups.today].sort((a, b) => dueSortMs(a) - dueSortMs(b)),
-    [groups],
-  );
   const cardGroups = useMemo(
     () =>
       CARD_GROUPS.map((group) => ({
         key: group.key,
         label: group.label,
-        tasks: group.key === 'focus' ? focusTasks : groups[group.key],
+        tasks: groups[group.key],
       })).filter((group) => group.tasks.length > 0),
-    [groups, focusTasks],
+    [groups],
   );
   // 顶部进度只算「截止日期是今天」的待办：过期、7 天内、以后和灵感都不进分子分母
   const todayTasks = useMemo(() => tasks.filter((task) => !task.deletedAt && task.due === today), [tasks, today]);
@@ -576,17 +576,33 @@ export function CardApp() {
   const addTask = async () => {
     const text = taskDraft.trim();
     if (!text || busy) return;
-    const quick = parseQuickTaskInput(text);
+    const quick = parseQuickTaskInput(text, now);
+    // 标题里写了「明天」「周五」就排到那一天；手动点过日期 / 时间则以手动为准
+    const finalTime = timeTouched ? dueTime : (quick.dueTime ?? dueTime);
+    const finalDue = dueTouched ? due : (quick.due ?? due ?? (finalTime ? dateKey(now) : undefined));
     setBusy(true);
     try {
       await repo.createTask(quick.title, {
-        due: today,
-        dueTime: quick.dueTime,
-        status: 'todo',
+        due: finalDue,
+        dueTime: finalTime,
+        // 清了日期就回到「待整理」，跟主窗口的快速新增一致
+        status: finalDue ? 'todo' : 'inbox',
       });
       setTaskDraft('');
+      // 日期、时间只对刚录入的那条生效，避免连续录入悄悄继承
+      setDue(dateKey());
+      setDueTime(undefined);
+      setDueTouched(false);
+      setTimeTouched(false);
       await load();
-      say(quick.dueTime ? tr('已加入今天 {time}', { time: quick.dueTime }) : tr('已加入今天'));
+      const when = finalDue === today ? null : finalDue ? dueLabel(finalDue, now) : null;
+      if (!finalDue) {
+        say(tr('已加入待整理'));
+      } else if (!when) {
+        say(finalTime ? tr('已加入今天 {time}', { time: finalTime }) : tr('已加入今天'));
+      } else {
+        say(finalTime ? tr('已加入 {when} {time}', { when, time: finalTime }) : tr('已加入 {when}', { when }));
+      }
       void bridge?.cardChanged?.();
       requestAnimationFrame(() => addRef.current?.focus());
     } catch {
@@ -1136,7 +1152,12 @@ export function CardApp() {
               {tr('{m} 月 {d} 日', { m: now.getMonth() + 1, d: now.getDate() })} · {tr(WEEKDAYS[now.getDay()])}
             </span>
             <span className="card-mini-sub">
-              {loading ? tr('读取中…') : tr('{n} 条待办 · {m} 条灵感', { n: focusTasks.length, m: openIdeas.length })}
+              {loading
+                ? tr('读取中…')
+                : tr('{n} 条待办 · {m} 条灵感', {
+                    n: groups.today.length + groups.overdue.length,
+                    m: openIdeas.length,
+                  })}
             </span>
           </div>
           <div className="card-mini-actions">
@@ -1220,7 +1241,7 @@ export function CardApp() {
       {tab === 'tasks' ? (
         <div className="card-body" role="tabpanel" aria-label={tr('待办清单')}>
           <form
-            className={cn('card-add', addExpanded && 'expanded')}
+            className={cn('card-add', addExpanded && 'expanded', addDatePop && 'pop-open')}
             onBlur={(e) => {
               // 离开整张卡片才收起；点「添加」按钮仍算在卡片里
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setAddFocused(false);
@@ -1235,9 +1256,15 @@ export function CardApp() {
               ref={addRef}
               rows={1}
               value={taskDraft}
-              placeholder={tr('添加今天的待办；结尾写 18:00 可提醒')}
+              placeholder={tr('添加待办，回车保存')}
+              title={tr('输入标题后回车保存；写「明天下午 3 点」「周五 18:00」会自动识别为截止时间')}
               aria-label={tr('添加待办')}
-              onChange={(e) => setTaskDraft(e.target.value.replace(/\n/g, ' '))}
+              onChange={(e) => {
+                setTaskDraft(e.target.value.replace(/\n/g, ' '));
+                // 换了文字就重新信任标题里的日期 / 时间识别
+                setDueTouched(false);
+                setTimeTouched(false);
+              }}
               onFocus={() => setAddFocused(true)}
               onCompositionStart={() => {
                 addComposing.current = true;
@@ -1256,6 +1283,39 @@ export function CardApp() {
               }}
             />
             {addExpanded && <span className="card-add-hint">{tr('回车保存 · Esc 取消')}</span>}
+            {addExpanded && (
+              <>
+                <button
+                  type="button"
+                  className={cn('quick-chip', (quickDue || quickDueTime) && 'on')}
+                  title={tr('设置截止日期与到点提醒')}
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setAddDatePop({ x: r.left, y: r.bottom + 6 });
+                  }}
+                >
+                  {quickDue
+                    ? `${dueLabel(quickDue, now)}${quickDueTime ? ` ${quickDueTime}` : ''}`
+                    : quickDueTime || tr('日期')}
+                </button>
+                {(quickDue || quickDueTime) && (
+                  <button
+                    type="button"
+                    className="quick-chip-clear"
+                    title={tr('清除日期与时间')}
+                    aria-label={tr('清除日期与时间')}
+                    onClick={() => {
+                      setDue(undefined);
+                      setDueTouched(true);
+                      setDueTime(undefined);
+                      setTimeTouched(true);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </>
+            )}
             <button type="submit" className="card-add-btn" disabled={!taskDraft.trim() || busy}>
               {tr('添加')}
             </button>
@@ -1279,7 +1339,6 @@ export function CardApp() {
                   <section className="card-group" key={group.key}>
                     <div className="card-group-head">
                       <span>{tr(group.label)}</span>
-                      {group.key === 'focus' && overdueCount > 0 ? <em>{tr('{n} 条过期', { n: overdueCount })}</em> : null}
                       <i>{group.tasks.length}</i>
                     </div>
                     <ul className="card-task-list">
@@ -1304,7 +1363,10 @@ export function CardApp() {
                                   className={cn('card-date-chip', late && 'late', !task.due && 'empty')}
                                   onClick={(e) => openDatePop(task, e)}
                                   title={task.due ? tr('修改日期') : tr('设置日期')}
-                                  aria-label={tr('{action}「{title}」的日期', { action: task.due ? tr('修改') : tr('设置'), title: taskTitle(task) })}
+                                  aria-label={tr('{action}「{title}」的日期', {
+                                    action: task.due ? tr('修改') : tr('设置'),
+                                    title: taskTitle(task),
+                                  })}
                                 >
                                   <CalendarDays size={11} strokeWidth={1.9} />
                                   {task.due ? dueLabel(task.due, now) : tr('加日期')}
@@ -1330,7 +1392,10 @@ export function CardApp() {
                                     <button
                                       className={cn('card-time-chip', task.dueTime && 'set')}
                                       title={task.dueTime ? tr('修改到点时间') : tr('设置到点提醒时间')}
-                                      aria-label={tr('{action}「{title}」的到点时间', { action: task.dueTime ? tr('修改') : tr('设置'), title: taskTitle(task) })}
+                                      aria-label={tr('{action}「{title}」的到点时间', {
+                                        action: task.dueTime ? tr('修改') : tr('设置'),
+                                        title: taskTitle(task),
+                                      })}
                                       onClick={() => {
                                         setDatePop(null);
                                         setTimeEdit(task.id);
@@ -1536,7 +1601,10 @@ export function CardApp() {
                                   ? tr('「{title}」在本机没有关联，点击可重新选择程序', { title: view.title })
                                   : view.missing
                                     ? tr('「{title}」已不存在，可到首页重新设置', { title: view.title })
-                                    : tr('打开「{title}」{sub}；拖动可调整位置', { title: view.title, sub: view.sub ? ` · ${tr(view.sub)}` : '' })
+                                    : tr('打开「{title}」{sub}；拖动可调整位置', {
+                                        title: view.title,
+                                        sub: view.sub ? ` · ${tr(view.sub)}` : '',
+                                      })
                               }
                               aria-label={tr('打开{title}', { title: view.title })}
                               onDragStart={(e) => beginShortcutDrag(e, entry)}
@@ -1570,7 +1638,11 @@ export function CardApp() {
                               <span className="card-shortcut-text">
                                 <span className="card-shortcut-title">{view.title}</span>
                                 <span className="card-shortcut-sub">
-                                  {openingId === entry.id ? tr('正在打开…') : unlinked ? tr('本机未关联') : tr(view.sub)}
+                                  {openingId === entry.id
+                                    ? tr('正在打开…')
+                                    : unlinked
+                                      ? tr('本机未关联')
+                                      : tr(view.sub)}
                                 </span>
                               </span>
                             </button>
@@ -1626,6 +1698,41 @@ export function CardApp() {
         onRecheck={() => systemStatus.refresh()}
         onPicked={linkSystemApp}
       />
+
+      {addDatePop ? (
+        <DatePicker
+          value={quickDue}
+          time={quickDueTime}
+          x={addDatePop.x}
+          y={addDatePop.y}
+          onPick={(next) => {
+            setDue(next);
+            setDueTouched(true);
+            // 日期被清除时，到点提醒也没有意义了
+            if (!next) {
+              setDueTime(undefined);
+              setTimeTouched(true);
+            }
+            // 选完把焦点还给输入框，回车能接着保存
+            requestAnimationFrame(() => addRef.current?.focus());
+          }}
+          onTimePick={(next) => {
+            setDueTime(next);
+            setTimeTouched(true);
+            // 只填时间、没选日期时落到今天
+            if (next && !quickDue) {
+              setDue(dateKey(now));
+              setDueTouched(true);
+            }
+          }}
+          onClose={() => {
+            setAddDatePop(null);
+            // 弹窗里点确定 / 取消 / 按 Esc 关掉后，焦点还给输入框，别显示成未聚焦
+            requestAnimationFrame(() => addRef.current?.focus());
+          }}
+          onOutside={() => setAddDatePop(null)}
+        />
+      ) : null}
 
       {datePop ? (
         <DatePicker

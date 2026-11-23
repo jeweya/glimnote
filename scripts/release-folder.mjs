@@ -9,7 +9,7 @@
  *   npm run release:folder           # 整理 package.json 当前版本
  *   npm run release:folder -- --all  # 顺手把 release/ 根目录下所有旧安装包也归档
  *
- * 发版时直接把 release/vX.Y.Z/ 里的两个文件传到 GitCode 同名 tag 即可。
+ * 发版时直接把 release/vX.Y.Z/ 里的安装包、latest.yml、更新说明.md 传到 GitCode 同名 tag 即可。
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
