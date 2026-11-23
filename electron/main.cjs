@@ -71,16 +71,24 @@ function writeBootLine(text) {
 
 /**
  * 自动更新源：GitCode Releases。
- * GitCode 没有 GitHub 那样的 releases/latest 固定目录，所以先问一次 API 拿到
- * 最新版本 tag，再让 generic provider 指向该版本的下载目录，由它读取 latest.yml。
- * 发版时把安装包与 latest.yml 传到同一个 tag（如 v0.1.1）即可。
+ * 首选固定 latest 目录：发版时把安装包与 latest.yml 覆盖上传到 tag=latest，
+ * 客户端固定读 releases/download/latest/latest.yml，由它读取版本号。
+ * 读不到时才问一次 API 拿到最新版本 tag，再让 generic provider 指向该版本的下载目录。
  *
  * GitCode 上勾选「预发版本」的 Release 不会进入自动更新：自动检查只挑正式版，
  * 设置页手动点「检查更新」时才允许拿到预发版，方便先手动试用。
+ *
+ * 注意：GitCode 的匿名 API 由共享账号代发，额度被别的调用方用满时会整片返回 429。
+ *
+ * 首选更新源是固定的 latest 目录：发版时把最新正式版覆盖上传到 tag=latest，
+ * 客户端固定读 releases/download/latest/latest.yml，不再依赖 API 动态发现版本号。
+ * latest 目录读不到（还没上传 / 404）时才退回 GitCode API 兜底。
  */
 const UPDATE_API = 'https://api.gitcode.com/api/v5/repos/jewey/glimnote/releases/latest';
 const UPDATE_LIST_API = 'https://api.gitcode.com/api/v5/repos/jewey/glimnote/releases?per_page=50';
 const UPDATE_DOWNLOAD_BASE = 'https://gitcode.com/jewey/glimnote/releases/download';
+/** 固定 latest 目录：发版时覆盖上传安装包与 latest.yml，客户端首选读这里 */
+const UPDATE_LATEST_BASE = `${UPDATE_DOWNLOAD_BASE}/latest`;
 const UPDATE_TIMEOUT = 10000;
 
 // 到点提醒是应用自己发声，不依赖用户先点过页面；Electron 默认的自动播放限制会把提示音吞掉
@@ -2689,10 +2697,12 @@ function useUpdateRelease(release) {
 async function resolveUpdateFeed(options = {}) {
   const includePrerelease = options.includePrerelease === true;
   let latest = null;
+  let apiError = null;
   if (!includePrerelease) {
     try {
       latest = await fetchLatestRelease();
     } catch (e) {
+      apiError = e;
       logFile.write('app', 'warn', `查询最新 Release 失败：${String((e && e.message) || e).slice(0, 160)}`);
     }
     if (latest && !isPrereleaseRelease(latest) && !isDraftRelease(latest)) {
@@ -2705,23 +2715,85 @@ async function resolveUpdateFeed(options = {}) {
   try {
     list = await fetchReleaseList();
   } catch (e) {
+    apiError = apiError || e;
     logFile.write('app', 'warn', `查询 Release 列表失败：${String((e && e.message) || e).slice(0, 160)}`);
   }
   const picked = pickRelease(list, includePrerelease);
   if (picked) return useUpdateRelease(picked);
 
-  if (!latest) latest = await fetchLatestRelease();
-  // 自动检查：更新源上只剩预发版时按「暂无更新」处理，宁可晚一天提示
-  // 也不把测试包推给稳定用户；手动检查会带 includePrerelease 走不到这里。
-  if (!includePrerelease && isPrereleaseRelease(latest)) return null;
-  if (isDraftRelease(latest)) return null;
-  return useUpdateRelease(latest);
+  // 这里的第二次请求同样可能失败（GitCode 匿名额度被用满时整片 429），
+  // 不能再让它把异常抛到外面，否则连「接口不可用」和「没有新版本」都分不清
+  if (!latest) {
+    try {
+      latest = await fetchLatestRelease();
+    } catch (e) {
+      apiError = apiError || e;
+      logFile.write('app', 'warn', `再次查询最新 Release 失败：${String((e && e.message) || e).slice(0, 160)}`);
+    }
+  }
+  if (latest) {
+    // 自动检查：更新源上只剩预发版时按「暂无更新」处理，宁可晚一天提示
+    // 也不把测试包推给稳定用户；手动检查会带 includePrerelease。
+    if (isDraftRelease(latest)) return null;
+    if (!includePrerelease && isPrereleaseRelease(latest)) return null;
+    const feed = useUpdateRelease(latest);
+    if (feed) return feed;
+  }
+
+  throw apiError || new Error('没能从 GitCode 取到可用的版本号');
 }
 
-async function applyUpdateFeed(updater, options = {}) {
-  const feed = await resolveUpdateFeed(options);
-  if (feed) updater.setFeedURL({ provider: 'generic', url: feed.base });
-  return feed;
+/** 记录当前 feed 地址并指给 electron-updater；downloadUpdate 也依赖这里的 updateFeedBase */
+function setUpdateFeed(updater, base) {
+  updateFeedBase = base;
+  updater.setFeedURL({ provider: 'generic', url: base });
+}
+
+/** 把 updater 指到 base 并检查一次，返回 latest.yml 里的版本号；读不到就抛错 */
+async function checkFeed(updater, base) {
+  setUpdateFeed(updater, base);
+  const res = await updater.checkForUpdates();
+  return res && res.updateInfo ? res.updateInfo.version : '';
+}
+
+/**
+ * 确定本次检查实际使用的更新源，返回 { feed, lastError }。
+ *
+ * 优先级：固定 latest 目录（正式版）→ GitCode API（手动检查含预发）。
+ * latest 读不到、或 latest 没给出比当前新的正式版时，才走后面的兜底：
+ * - 自动检查能借此发现「latest 忘了覆盖上传」时漏掉的新版本；
+ * - 手动检查能借此拿到 latest 目录里不存在的预发版。
+ * 兜底也失败时保留 lastError 供报错；latest 已经成功过就按 latest 的结果处理。
+ */
+async function resolveActiveFeed(updater, options = {}) {
+  const manual = options.manual === true;
+  let feed = null;
+  let lastError = null;
+
+  try {
+    const version = await checkFeed(updater, UPDATE_LATEST_BASE);
+    feed = { base: UPDATE_LATEST_BASE, tag: 'latest', version, prerelease: false };
+    logFile.write('app', 'info', `更新源：latest 固定目录（${version}）`);
+  } catch (e) {
+    lastError = e;
+    logFile.write('app', 'warn', `latest 固定目录不可用：${String((e && e.message) || e).slice(0, 160)}`);
+  }
+
+  if (!feed || !isNewerVersion(feed.version, app.getVersion())) {
+    try {
+      const alt = await resolveUpdateFeed({ includePrerelease: manual });
+      if (alt && (!feed || isNewerVersion(alt.version, feed.version))) {
+        const version = await checkFeed(updater, alt.base);
+        feed = { base: alt.base, tag: alt.tag, version, prerelease: alt.prerelease };
+        logFile.write('app', 'info', `更新源：${feed.tag}${feed.prerelease ? '（预发版本）' : ''}`);
+      }
+    } catch (e) {
+      lastError = lastError || e;
+      logFile.write('app', 'warn', `备用更新源失败：${String((e && e.message) || e).slice(0, 160)}`);
+    }
+  }
+
+  return { feed, lastError };
 }
 
 function getUpdater() {
@@ -2783,6 +2855,9 @@ function getUpdater() {
  */
 function friendlyUpdateError(e, fallback) {
   const text = String((e && e.message) || e);
+  if (/\b429\b|too many requests|rate limit/i.test(text)) {
+    return 'GitCode 接口暂时被限流（HTTP 429），过一会儿再试即可；如果着急，可以点「打开发布页」手动下载安装包。';
+  }
   if (/\b404\b|not found|cannot find channel/i.test(text)) {
     return '更新服务器上暂时找不到更新文件（HTTP 404）。可能是新版本刚发布还没同步好，请稍后重试；如果一直失败，可以点「打开发布页」手动下载。';
   }
@@ -2916,47 +2991,41 @@ async function checkUpdate(options = {}) {
       };
     }
   }
-  try {
-    // 先解析最新 tag，再把 feed 指到对应版本的目录；GitCode 没有 latest 直链
-    const feed = await applyUpdateFeed(updater, { includePrerelease: manual });
-    if (!feed) {
-      return { status: 'latest', message: `已是最新版本 ${app.getVersion()}` };
-    }
-    logFile.write('app', 'info', `更新源：${feed.tag}${feed.prerelease ? '（预发版本）' : ''}`);
-    const res = await updater.checkForUpdates();
-    const latest = res && res.updateInfo ? res.updateInfo.version : '';
-    if (latest && isNewerVersion(latest, app.getVersion())) {
-      lastAvailableVersion = latest;
-      // 本地安装包必须正好是这一版，才算「已下载」
-      const downloaded = updateDownloaded && updateDownloadedVersion === latest;
-      updateDownloaded = downloaded;
-      const pre = feed.prerelease || hasPrereleaseComponent(latest);
-      // 安装包已经在本地时别让界面再显示一次「下载更新」：告诉渲染层直接进入安装流程
-      return {
-        status: 'available',
-        message: downloaded
-          ? `${pre ? '预发版本' : '新版本'} ${latest} 已下载，可直接重启安装`
-          : `发现${pre ? '预发版本' : '新版本'} ${latest}`,
-        version: latest,
-        prerelease: pre,
-        sourceTag: feed.tag,
-        downloaded,
-      };
-    }
-    lastAvailableVersion = '';
-    updateDownloaded = false;
-    updateDownloadedVersion = '';
-    // 「已是最新」也把来源带回去：手动检查命中预发版时，界面上能直接看出是预发版本
-    return {
-      status: 'latest',
-      message: `已是最新版本 ${app.getVersion()}`,
-      prerelease: feed.prerelease,
-      sourceTag: feed.tag,
-    };
-  } catch (e) {
-    logFile.write('app', 'warn', `检查更新失败：${String((e && e.message) || e).slice(0, 200)}`);
-    return { status: 'error', message: friendlyUpdateError(e, '检查更新失败，请稍后重试。') };
+  const { feed, lastError } = await resolveActiveFeed(updater, { manual });
+  if (!feed || !feed.version) {
+    logFile.write('app', 'warn', `检查更新失败：${String((lastError && lastError.message) || lastError || '').slice(0, 200)}`);
+    return { status: 'error', message: friendlyUpdateError(lastError, '检查更新失败，请稍后重试。') };
   }
+
+  const latest = feed.version;
+  if (isNewerVersion(latest, app.getVersion())) {
+    lastAvailableVersion = latest;
+    // 本地安装包必须正好是这一版，才算「已下载」
+    const downloaded = updateDownloaded && updateDownloadedVersion === latest;
+    updateDownloaded = downloaded;
+    const pre = feed.prerelease || hasPrereleaseComponent(latest);
+    // 安装包已经在本地时别让界面再显示一次「下载更新」：告诉渲染层直接进入安装流程
+    return {
+      status: 'available',
+      message: downloaded
+        ? `${pre ? '预发版本' : '新版本'} ${latest} 已下载，可直接重启安装`
+        : `发现${pre ? '预发版本' : '新版本'} ${latest}`,
+      version: latest,
+      prerelease: pre,
+      sourceTag: feed.tag,
+      downloaded,
+    };
+  }
+  lastAvailableVersion = '';
+  updateDownloaded = false;
+  updateDownloadedVersion = '';
+  // 「已是最新」也把来源带回去：手动检查命中预发版时，界面上能直接看出是预发版本
+  return {
+    status: 'latest',
+    message: `已是最新版本 ${app.getVersion()}`,
+    prerelease: feed.prerelease,
+    sourceTag: feed.tag,
+  };
 }
 
 /** 用户点了「忽略此版本」：只压住这一版，出现更新的版本仍然会提醒 */
@@ -3035,8 +3104,9 @@ async function downloadUpdate() {
     }
   }
   updateDownloadPromise = (async () => {
-    // 正常流程是「检查」之后再「下载」；这里兜底，防止直接调用时还没设过 feed
-    if (!updateFeedBase) await applyUpdateFeed(updater);
+    // 正常流程是「检查」之后再「下载」；这里兜底，防止直接调用时还没设过 feed。
+    // 同样走 latest 优先 → API 的候选链，保持和检查更新一致。
+    if (!updateFeedBase) await resolveActiveFeed(updater, {});
     await updater.downloadUpdate();
     // 有些 electron-updater 版本只在事件回调里标记，这里补一次，保证后续安装判断可靠
     updateDownloaded = true;

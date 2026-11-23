@@ -3,6 +3,12 @@
 每个版本的改动按版本号分节。打包时 `npm run release:folder` 会把对应小节提取到
 `release/vX.Y.Z/更新说明.md`，发版时和安装包一起上传。
 
+## 0.1.23
+
+### 修复
+
+- 修复 GitCode 匿名接口被共享额度限流（HTTP 429）时「检查更新」直接提示「检查更新失败，请稍后重试」：客户端改为主读固定的 `latest` 目录（`releases/download/latest/latest.yml`），不再依赖 API 动态发现版本号；`latest` 目录读不到时才退回 GitCode API 找版本号，安装包与 `latest.yml` 仍只从 GitCode 下载。限流时也给出明确提示，不再只有一句通用失败。
+
 ## 0.1.22
 
 ### 新增

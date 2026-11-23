@@ -140,7 +140,7 @@ npm run release:verify # 校验 app.asar 是否带自动更新组件、与 lates
 
 1. 改版本号：只改 `package.json` 的 `version`（推荐 `npm version 0.1.22 --no-git-tag-version`，会同时更新 `package-lock.json`）。这是唯一来源，安装包文件名、程序版本和 `latest.yml` 里的版本号都从这里取，`build/installer.nsi` 不用动。
 2. 写更新说明：在 `CHANGELOG.md` 顶部新增 `## 0.1.22` 小节，按 `### 新增` / `### 优化` / `### 修复` / `### 打包` 分条写。`npm run release:folder` 会把这一节的正文自动提取成 `release/v0.1.22/更新说明.md`，不用另写一份。
-3. 打包并发布：运行 `npm run release:win`（打包 → 生成 `latest.yml` → 校验 → 归档到 `release/v0.1.22/`），再把该目录里的安装包、`latest.yml`、`更新说明.md` 上传到 GitCode Release（tag 用 `v0.1.22`）并正式发布。
+3. 打包并发布：运行 `npm run release:win`（打包 → 生成 `latest.yml` → 校验 → 归档到 `release/v0.1.22/`），再把该目录里的安装包、`latest.yml`、`更新说明.md` 上传到 GitCode Release（tag 用 `v0.1.22`）并正式发布。然后把同一份安装包和 `latest.yml` 覆盖上传到固定 tag `latest`（删掉旧文件、换成新的），客户端检查更新会优先读这个目录。
 
 更细的打包与更新源说明见 [docs/mydoc/06-桌面端打包与发布.md](docs/mydoc/06-桌面端打包与发布.md)。
 
