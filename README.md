@@ -172,6 +172,9 @@ src/            界面、编辑器、状态与本地仓库逻辑
   store/        Zustand 应用状态与自动保存调度
 electron/       主进程与 preload（窗口、托盘、浮窗、更新、文件系统）
 mcp/            MCP 服务（stdio / HTTP）
+ios/            iOS 客户端占位目录（规划中，Swift + SwiftUI）
 docs/           README 用到的截图
 scripts/        发版辅助脚本
 ```
+
+安卓客户端（Kotlin + Jetpack Compose）使用独立仓库维护，本仓库不包含 `android/`（已加入 `.gitignore`）。

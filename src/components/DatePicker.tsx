@@ -107,6 +107,15 @@ export function DatePicker({ value, x, y, onPick, onClose, onOutside, time, onTi
     onClose();
   };
 
+  /** 日期 + 时间模式下一次清空两者；已清空就不再显示入口 */
+  const clearCombined = () => {
+    setPending(undefined);
+    setTimeText('');
+    onTimePick?.(undefined);
+    onPick(undefined);
+    onClose();
+  };
+
   const confirm = () => {
     if (combined) commitCombined();
     else pick(dateKey(cursor));
@@ -219,7 +228,13 @@ export function DatePicker({ value, x, y, onPick, onClose, onOutside, time, onTi
           {tr('明天')}
         </button>
         <button onClick={() => choose(nextMonday())}>{tr('下周一')}</button>
-        {!combined && (
+        {combined ? (
+          pending ? (
+            <button className="muted" onClick={clearCombined}>
+              {tr('清除')}
+            </button>
+          ) : null
+        ) : (
           <button className="muted" onClick={() => onPick(undefined)}>
             {tr('清除')}
           </button>

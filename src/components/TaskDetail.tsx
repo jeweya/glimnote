@@ -3,7 +3,6 @@ import {
   Ban,
   Check,
   ChevronRight,
-  Clock,
   Link2,
   MoreHorizontal,
   Plus,
@@ -35,7 +34,6 @@ import {
 import { cn, fullDate, timeKey } from '../lib/utils';
 import { Menu, type MenuEntry } from './Menu';
 import { DatePicker } from './DatePicker';
-import { TimePicker } from './TimePicker';
 import { NotePicker } from './NotePicker';
 import { TaskRepeatDialog } from './TaskRepeatDialog';
 import { ConfirmDialog } from './Confirm';
@@ -70,7 +68,6 @@ export function TaskDetail() {
   const [tagValue, setTagValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [datePop, setDatePop] = useState<{ x: number; y: number } | null>(null);
-  const [timePop, setTimePop] = useState<{ x: number; y: number } | null>(null);
   const [notePop, setNotePop] = useState<{ x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [repeatOpen, setRepeatOpen] = useState(false);
@@ -335,6 +332,7 @@ export function TaskDetail() {
             <span className="td-label">{tr('截止日期')}</span>
             <button
               className="td-value"
+              title={tr('点开选择日期，底部可同时设置到点提醒')}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 setDatePop({ x: r.left, y: r.bottom + 6 });
@@ -343,46 +341,15 @@ export function TaskDetail() {
               <span className={cn(!task.due && 'muted')}>{dueFullLabel(task.due, task.dueTime)}</span>
               <ChevronRight size={14} />
             </button>
-          </div>
-
-          <div className="td-field">
-            <span className="td-label">{tr('到点提醒')}</span>
             {task.due ? (
-              <div className="td-time">
-                <button
-                  className={cn('td-time-btn', !task.dueTime && 'muted')}
-                  aria-label={tr('到点提醒时间')}
-                  title={tr('点开选择时间，也可以直接输入时和分')}
-                  onClick={(e) => {
-                    const r = e.currentTarget.getBoundingClientRect();
-                    setTimePop({ x: r.left, y: r.bottom + 6 });
-                  }}
-                >
-                  <span>{task.dueTime || tr('选择时间')}</span>
-                  <Clock size={14} />
-                </button>
-                {task.dueTime ? (
-                  task.repeat ? (
-                    <span className="td-time-hint">{tr('循环任务保留提醒时间')}</span>
-                  ) : (
-                    <button
-                      className="td-time-clear"
-                      title={tr('取消提醒时间')}
-                      onClick={() => {
-                        patchTask(task.id, { dueTime: undefined });
-                        markSaving();
-                      }}
-                    >
-                      <X size={13} />
-                    </button>
-                  )
-                ) : (
-                  <span className="td-time-hint">{tr('只到日期，不提醒')}</span>
-                )}
-              </div>
-            ) : (
-              <span className="td-value-static muted">{tr('先设截止日期')}</span>
-            )}
+              task.dueTime ? (
+                task.repeat ? (
+                  <span className="td-time-hint">{tr('循环任务保留提醒时间')}</span>
+                ) : null
+              ) : (
+                <span className="td-time-hint">{tr('只到日期，不提醒')}</span>
+              )
+            ) : null}
           </div>
 
           <div className="td-field">
@@ -643,6 +610,8 @@ export function TaskDetail() {
       {datePop && (
         <DatePicker
           value={task.due}
+          // 原有任务没有提醒时间就留空，改日期时不会悄悄加上提醒
+          time={task.dueTime ?? ''}
           x={datePop.x}
           y={datePop.y}
           onPick={(next) => {
@@ -650,20 +619,11 @@ export function TaskDetail() {
             markSaving();
             setDatePop(null);
           }}
-          onClose={() => setDatePop(null)}
-        />
-      )}
-
-      {timePop && (
-        <TimePicker
-          value={task.dueTime}
-          x={timePop.x}
-          y={timePop.y}
-          onPick={(next) => {
+          onTimePick={(next) => {
             patchTask(task.id, { dueTime: next });
             markSaving();
           }}
-          onClose={() => setTimePop(null)}
+          onClose={() => setDatePop(null)}
         />
       )}
 

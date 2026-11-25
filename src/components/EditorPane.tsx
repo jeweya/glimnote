@@ -132,19 +132,18 @@ export function EditorPane() {
     editorPos.current = 0;
     focusEditor.current = false;
   }
-  /** 默认所见即所得；关掉后显示原始 Markdown，给进阶用户用 */
-  const [live, setLive] = useState(() => localStorage.getItem('glimnote.live') !== '0');
+  /**
+   * 默认所见即所得；点小眼睛临时切到原始 Markdown。
+   * 只影响当前这一篇：换笔记时自动回到所见即所得，不记住上一篇的选择。
+   */
+  const [live, setLive] = useState(true);
 
-  const toggleLive = () => {
-    setLive((on) => {
-      const next = !on;
-      localStorage.setItem('glimnote.live', next ? '1' : '0');
-      return next;
-    });
-  };
+  const toggleLive = () => setLive((on) => !on);
 
   useEffect(() => {
     setPreview(false);
+    // 小眼睛（原始 Markdown）不跨笔记保留：每次切换都从所见即所得开始
+    setLive(true);
     setTagInput(false);
     setTagValue('');
     setLinksOpen(true);

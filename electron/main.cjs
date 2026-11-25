@@ -193,6 +193,8 @@ let reminderWindow = null;
 let reminderHideTimer = null;
 /** 浮层此刻显示了几个待办标题；上锁时要据此换成只报条数的版本 */
 let lastReminderCount = 0;
+/** 浮层里正在显示的提醒条目；处理完一条后据此只收起对应卡片 */
+let lastReminderItems = [];
 /** 当前浮层是不是「已锁定」的汇总提醒（里面没有具体标题） */
 let reminderGeneric = false;
 let tray = null;
@@ -1164,11 +1166,31 @@ function registerFsHandlers() {
     placeReminderWindow(height);
     return true;
   });
-  // 浮层里的按钮不直接改数据：转给主窗口，沿用它原本的完成 / 延后逻辑
+  // 浮层里的按钮不直接改数据：转给主窗口，沿用它原本的完成 / 延后逻辑。
+  // 有 id 时只收起那一条提醒，其余卡片继续留在桌面上；id 为空（上锁汇总 / Esc）才全部收起。
   ipcMain.handle('reminder:action', (_e, payload) => {
     const action = String((payload && payload.action) || '');
     const id = String((payload && payload.id) || '');
-    hideReminderWindow();
+    if (id) {
+      lastReminderItems = lastReminderItems.filter((it) => String((it && it.id) || '') !== id);
+      const left = lastReminderItems;
+      if (!left.length) {
+        hideReminderWindow();
+      } else {
+        const titled = left.filter((it) => it && it.id);
+        lastReminderCount = titled.length;
+        reminderGeneric = titled.length === 0;
+        const win = reminderWindow;
+        if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+          // 先把窗口收短一截，渲染层量完真实高度后会再精调一次
+          placeReminderWindow(48 + left.length * 132);
+          win.webContents.send('reminder:data', left);
+          scheduleReminderHide();
+        }
+      }
+    } else {
+      hideReminderWindow();
+    }
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('reminder:action', { action, id });
     }
@@ -2457,6 +2479,7 @@ function hideReminderWindow() {
     reminderHideTimer = null;
   }
   reminderGeneric = false;
+  lastReminderItems = [];
   if (reminderWindow && !reminderWindow.isDestroyed()) reminderWindow.hide();
 }
 
@@ -2479,6 +2502,7 @@ function showReminder(items) {
     return true;
   }
   const titled = list.filter((it) => it && it.id);
+  lastReminderItems = list;
   if (titled.length) {
     lastReminderCount = titled.length;
     reminderGeneric = false;

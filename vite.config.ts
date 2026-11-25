@@ -11,7 +11,29 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   // 端口固定 5174：被占用时直接报错而不是悄悄换端口，免得 Electron 的 wait-on 等错地方
-  server: { port: 5174, host: true, strictPort: true },
+  server: {
+    port: 5174,
+    host: true,
+    strictPort: true,
+    watch: {
+      // 打包产物、安装包解包目录和构建缓存都在仓库根下，不该被 dev server 监听：
+      // 一边开着 electron:dev 一边打包时，win-unpacked 会被反复写入，Windows 上还会
+      // 因为文件被安装包进程占用抛 EBUSY，直接把整个 Vite 进程带崩（打包本身不受影响）。
+      ignored: [
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/release/**',
+        '**/dist/**',
+        '**/dist-electron/**',
+        '**/.tmp/**',
+        '**/.tmp-build/**',
+        '**/.cache/**',
+        '**/shots*/**',
+        // Vite 每次重载配置时自己生成的临时包，不监听也就不会来回触发重载
+        '**/vite.config.ts.timestamp-*',
+      ],
+    },
+  },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 1200,

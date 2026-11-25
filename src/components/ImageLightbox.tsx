@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Minus, Plus, RotateCcw, X } from 'lucide-react';
 import { useT } from '../lib/i18n';
@@ -18,6 +24,8 @@ export function ImageLightbox({ url, alt, onClose }: Props) {
   const altText = alt ?? tr('图片');
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  /** 这次按下后是否真的拖动过：拖完松手不应该被当成「点空白关闭」 */
+  const movedRef = useRef(false);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
@@ -50,6 +58,7 @@ export function ImageLightbox({ url, alt, onClose }: Props) {
   }, []);
 
   const startPan = (e: ReactPointerEvent<HTMLDivElement>) => {
+    movedRef.current = false;
     if (zoom <= 1) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
@@ -58,6 +67,7 @@ export function ImageLightbox({ url, alt, onClose }: Props) {
   const movePan = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = dragRef.current;
     if (!d) return;
+    if (Math.abs(e.clientX - d.x) > 3 || Math.abs(e.clientY - d.y) > 3) movedRef.current = true;
     setOffset({ x: d.ox + e.clientX - d.x, y: d.oy + e.clientY - d.y });
   };
 
@@ -65,12 +75,22 @@ export function ImageLightbox({ url, alt, onClose }: Props) {
     dragRef.current = null;
   };
 
+  /** 点图片本身不关闭；点图片周围的空白区域关闭（拖动查看后松手不算点击） */
+  const stageClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (movedRef.current) {
+      movedRef.current = false;
+      return;
+    }
+    if (e.target === e.currentTarget) onClose();
+  };
+
   return createPortal(
     <div className="lightbox" onClick={onClose}>
       <div
         className="lb-stage"
         ref={stageRef}
-        onClick={(e) => e.stopPropagation()}
+        onClick={stageClick}
         onPointerDown={startPan}
         onPointerMove={movePan}
         onPointerUp={endPan}

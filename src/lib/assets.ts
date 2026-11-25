@@ -73,8 +73,22 @@ function toBase64(bytes: Uint8Array) {
 
 /** 读取仓库内的附件并转为 data URL，用于导出自包含的 HTML */
 export async function assetDataUrl(notePath: string, src: string): Promise<string | null> {
-  const abs = resolveAsset(notePath, src);
-  if (!abs) return null;
-  const data = await readBinary(abs);
-  return `data:${mimeOf(abs)};base64,${toBase64(data)}`;
+  // 富文本编辑器写出的链接会把中文文件名转成 %E5…，解码后再去仓库里找
+  const candidates: (string | null)[] = [resolveAsset(notePath, src)];
+  try {
+    const decoded = decodeURI(src);
+    if (decoded !== src) candidates.push(resolveAsset(notePath, decoded));
+  } catch {
+    /* 百分号写坏了就只用原样 */
+  }
+  for (const abs of candidates) {
+    if (!abs) continue;
+    try {
+      const data = await readBinary(abs);
+      return `data:${mimeOf(abs)};base64,${toBase64(data)}`;
+    } catch {
+      /* 换下一个候选路径 */
+    }
+  }
+  return null;
 }

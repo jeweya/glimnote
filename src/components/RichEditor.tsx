@@ -26,22 +26,29 @@ import Placeholder from '@tiptap/extension-placeholder';
 import type { Note } from '../lib/markdown';
 import { listTemplates, renderTemplate } from '../lib/repo';
 import { useApp } from '../store/app';
-import { effectiveAttachLimitMb, prepareAttachmentAsset, prepareImageAsset } from '../lib/editorBridge';
+import {
+  effectiveAttachLimitMb,
+  prepareAttachmentAsset,
+  prepareImageAsset,
+} from '../lib/editorBridge';
 import { markdownToHtml } from '../lib/rich/markdown';
 import {
   Alignment,
   MarkdownSafeParagraph,
   MarkdownTextStyle,
   PageBreak,
+  PendingImage,
   SoftHardBreak,
   WikiLink,
   createRichImage,
 } from '../lib/rich/extensions';
-import { richInsertAttachment, richInsertImage, richTableAtPosition, richToggleList, setActiveRichEditor } from '../lib/rich/bridge';
+import { richInsertAttachment, richTableAtPosition, richToggleList, setActiveRichEditor } from '../lib/rich/bridge';
 import { hydrateAssetImages } from '../lib/rich/assetUrls';
+import { retryBrokenImage } from '../lib/rich/imageFallback';
 import { sanitizePastedHtml, sanitizePastedText } from '../lib/rich/sanitize';
 import { htmlToPlainText, plainTextToHtml } from '../lib/rich/formattedPaste';
-import { parseImageAlt, withImageWidth } from '../lib/assets';
+import { parseImageAlt, resolveAsset, withImageWidth } from '../lib/assets';
+import { ASSET_URL_EVENT } from '../lib/assetLibrary';
 import { openExternal } from '../lib/openExternal';
 import { t, useT } from '../lib/i18n';
 
@@ -293,7 +300,14 @@ export function RichEditor({
   /** 光标在表格里时浮在表格右上角的「编辑表格」入口 */
   const [tableChip, setTableChip] = useState<{ pos: number; left: number; top: number } | null>(null);
   /** 点中图片后浮在图片上方的宽度调节条 */
-  const [imageBar, setImageBar] = useState<{ pos: number; left: number; top: number; width: number } | null>(null);
+  const [imageBar, setImageBar] = useState<{
+    pos: number;
+    left: number;
+    top: number;
+    width: number;
+    /** 网络图片没加载出来：工具条上多一个「重新加载」 */
+    broken: boolean;
+  } | null>(null);
   /** 点中链接后浮出的查看 / 编辑条：可直接打开、复制、改地址或去掉链接 */
   const [linkPop, setLinkPop] = useState<{
     href: string;
@@ -362,10 +376,16 @@ export function RichEditor({
     const left = Math.max(4, Math.min(rect.right - box.left - barWidth, box.width - barWidth - 4));
     const top = Math.max(4, rect.top - box.top - 32);
     const width = Math.round(rect.width);
+    const broken = nodeDom.classList.contains('glimnote-img-broken');
     setImageBar((prev) =>
-      prev && prev.pos === pos && prev.left === left && prev.top === top && prev.width === width
+      prev &&
+      prev.pos === pos &&
+      prev.left === left &&
+      prev.top === top &&
+      prev.width === width &&
+      prev.broken === broken
         ? prev
-        : { pos, left, top, width },
+        : { pos, left, top, width, broken },
     );
   }
 
@@ -497,6 +517,15 @@ export function RichEditor({
     );
   };
 
+  /** 裂图的「重新加载」：只改 NodeView 里的占位图，文档里仍是原始地址 */
+  const retryImage = () => {
+    const editor = editorRef.current;
+    if (!editor || !imageBar) return;
+    const el = editor.view.nodeDOM(imageBar.pos);
+    if (el instanceof HTMLImageElement) retryBrokenImage(el);
+    setImageBar(null);
+  };
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -519,6 +548,7 @@ export function RichEditor({
         BackgroundColor,
         Alignment,
         PageBreak,
+        PendingImage,
         WikiLink,
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -571,6 +601,16 @@ export function RichEditor({
             mouse.preventDefault();
             // 右击不自动挪光标，但菜单里的加粗 / 复制得作用在点到的位置
             const at = view.posAtCoords({ left: mouse.clientX, top: mouse.clientY });
+            // 点到图片时把地址一起带给右键菜单，菜单里才能多出「上传到七牛云」
+            let image: { src: string; alt: string } | undefined;
+            if (at) {
+              const node =
+                view.state.doc.nodeAt(at.pos) ??
+                (at.pos > 0 ? view.state.doc.nodeAt(at.pos - 1) : null);
+              if (node?.type.name === 'image') {
+                image = { src: String(node.attrs.src || ''), alt: String(node.attrs.alt || '') };
+              }
+            }
             const { from, to } = view.state.selection;
             if (at && (from === to || at.pos < from || at.pos > to)) {
               view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at.pos)));
@@ -578,7 +618,7 @@ export function RichEditor({
             }
             window.dispatchEvent(
               new CustomEvent('glimnote:editor-menu', {
-                detail: { x: mouse.clientX, y: mouse.clientY, rich: true },
+                detail: { x: mouse.clientX, y: mouse.clientY, rich: true, image },
               }),
             );
             return true;
@@ -653,16 +693,72 @@ export function RichEditor({
     // 首屏：仓库内的图片读成 blob URL（渲染时来不及同步取）
     void hydrateAssetImages(edit.view.dom);
 
+    /**
+     * 粘贴图片的临时占位：先插入本地 blob 预览，压缩 / 上传完成后换成真图片。
+     * 占位节点不参与 Markdown 序列化（见 extensions.ts 的 PendingImage）。
+     */
+    let pendingSeq = 0;
+    const newPendingId = () => `pending-${Date.now().toString(36)}-${(pendingSeq += 1)}`;
+
+    const findPending = (id: string) => {
+      let found = -1;
+      edit.state.doc.descendants((node, pos) => {
+        if (found >= 0) return false;
+        if (node.type.name === 'pendingImage' && String(node.attrs.id || '') === id) {
+          found = pos;
+          return false;
+        }
+        return true;
+      });
+      return found;
+    };
+
+    /** 立刻插入带预览的占位，返回 id；图片还在保存中就先让用户看到它 */
+    const insertPendingImage = (file: File, label: string) => {
+      const id = newPendingId();
+      const src = URL.createObjectURL(file);
+      edit
+        .chain()
+        .focus()
+        .insertContent({ type: 'pendingImage', attrs: { id, src, label } })
+        .run();
+      return id;
+    };
+
+    const replacePendingImage = (id: string, rel: string, alt: string) => {
+      const pos = findPending(id);
+      if (pos < 0) return false;
+      // 保存期间用户可能已经在别处继续输入：直接改文档，不抢焦点、不动光标
+      const tr = edit.state.tr;
+      tr.replaceWith(pos, pos + 1, edit.schema.nodes.image.create({ src: rel, alt }));
+      edit.view.dispatch(tr);
+      void hydrateAssetImages(edit.view.dom);
+      return true;
+    };
+
+    const dropPendingImage = (id: string) => {
+      const pos = findPending(id);
+      if (pos < 0) return;
+      edit.view.dispatch(edit.state.tr.delete(pos, pos + 1));
+    };
+
     const insertFiles = async (files: File[]) => {
-      for (const file of files) {
-        if (file.type.startsWith('image/')) {
-          const asset = await prepareImageAsset(file, noteRef.current.path, (text) => noticeRef.current?.(text));
+      // 图片先全部占位：粘贴后马上能看到图，压缩和上传在后台继续
+      const slots = files.map((file) => {
+        if (!file.type.startsWith('image/')) return { file, pendingId: '' };
+        return { file, pendingId: insertPendingImage(file, t('正在保存图片…')) };
+      });
+      for (const slot of slots) {
+        if (slot.pendingId) {
+          const asset = await prepareImageAsset(slot.file, noteRef.current.path, (text) => noticeRef.current?.(text));
           if (asset) {
-            richInsertImage(asset.rel, asset.alt);
+            replacePendingImage(slot.pendingId, asset.rel, asset.alt);
             noticeRef.current?.(asset.notice);
+          } else {
+            dropPendingImage(slot.pendingId);
           }
         } else {
-          const asset = await prepareAttachmentAsset(file, noteRef.current.path, (text) => noticeRef.current?.(text));
+          const asset = await prepareAttachmentAsset(slot.file, noteRef.current.path, (text) => noticeRef.current?.(text));
           if (asset) {
             richInsertAttachment(asset.rel, asset.label);
             noticeRef.current?.(asset.notice);
@@ -677,6 +773,28 @@ export function RichEditor({
       const images = Array.from(tpl.content.querySelectorAll('img')).filter((img) =>
         /^data:image\//i.test(img.getAttribute('src') || ''),
       );
+      if (!images.length) {
+        edit.chain().focus().insertContentAt({ from, to }, sanitizePastedHtml(tpl.innerHTML)).run();
+        void hydrateAssetImages(edit.view.dom);
+        return;
+      }
+
+      // 图片要逐张解码 / 保存，先放一行占位说明，免得粘贴后半天没反应
+      const pendingId = newPendingId();
+      edit
+        .chain()
+        .focus()
+        .insertContentAt(
+          { from, to },
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'pendingImage', attrs: { id: pendingId, label: t('正在保存 {n} 张图片…', { n: images.length }) } },
+            ],
+          },
+        )
+        .run();
+
       const limitBytes = effectiveAttachLimitMb() * 1024 * 1024;
       let saved = 0;
       let failed = 0;
@@ -700,7 +818,19 @@ export function RichEditor({
         img.setAttribute('src', asset.rel);
         saved += 1;
       }
-      edit.chain().focus().insertContentAt({ from, to }, sanitizePastedHtml(tpl.innerHTML)).run();
+
+      // 占位换成正文；期间被手动删掉时，退回插到当前光标
+      const pos = findPending(pendingId);
+      const content = sanitizePastedHtml(tpl.innerHTML);
+      if (pos >= 0) {
+        const $pos = edit.state.doc.resolve(pos);
+        const start = $pos.before();
+        const end = $pos.after();
+        if (content.trim()) edit.chain().insertContentAt({ from: start, to: end }, content).run();
+        else edit.chain().deleteRange({ from: start, to: end }).run();
+      } else if (content.trim()) {
+        edit.chain().focus().insertContent(content).run();
+      }
       void hydrateAssetImages(edit.view.dom);
       if (saved && failed) {
         noticeRef.current?.(
@@ -711,6 +841,25 @@ export function RichEditor({
       } else if (failed) {
         noticeRef.current?.(t('粘贴的图片未能保存（超过大小上限或格式不支持）'));
       }
+    };
+
+    /**
+     * 「只粘贴文本」是按段落插入的块内容。直接插在空段落的光标处会先留下
+     * 一个空段落（看起来像多了一个回车），所以遇到空段落时整段替换；
+     * 在段首插入时则插到这一段之前，保持原有的换行结构。
+     */
+    const blockInsertRange = (from: number, to: number) => {
+      if (from !== to) return { from, to };
+      const $pos = edit.state.doc.resolve(from);
+      if (!$pos.parent.isTextblock) return { from, to };
+      if ($pos.parent.content.size === 0) {
+        return { from: $pos.before($pos.depth), to: $pos.after($pos.depth) };
+      }
+      if ($pos.parentOffset === 0) {
+        const at = $pos.before($pos.depth);
+        return { from: at, to: at };
+      }
+      return { from, to };
     };
 
     // 右键「粘贴 / 只粘贴文本」：剪贴板内容已经在菜单层读好。
@@ -735,11 +884,13 @@ export function RichEditor({
           noticeRef.current?.(t('剪贴板里没有可粘贴的内容'));
           return;
         }
-        void insertHtmlWithDataImages(html, from, to);
+        const range = blockInsertRange(from, to);
+        void insertHtmlWithDataImages(html, range.from, range.to);
         return;
       }
       if (detail.html) {
-        void insertHtmlWithDataImages(detail.html, from, to);
+        const range = blockInsertRange(from, to);
+        void insertHtmlWithDataImages(detail.html, range.from, range.to);
         return;
       }
       if (detail.files?.length) {
@@ -751,9 +902,50 @@ export function RichEditor({
         noticeRef.current?.(t('剪贴板里没有可粘贴的内容'));
         return;
       }
-      void insertHtmlWithDataImages(html, from, to);
+      const range = blockInsertRange(from, to);
+      void insertHtmlWithDataImages(html, range.from, range.to);
     };
     window.addEventListener('glimnote:paste-clipboard', onPasteClipboard);
+
+    // 设置页或右键把本地图片传到七牛云后，正文里指向它的地址同步换成云端链接
+    const onAssetUrl = (event: Event) => {
+      if (editorRef.current !== edit) return;
+      const detail = (event as CustomEvent<{ abs?: string; url?: string }>).detail;
+      const abs = String(detail?.abs || '');
+      const url = String(detail?.url || '');
+      if (!abs || !url) return;
+      const tr = edit.state.tr;
+      let changed = false;
+      const matches = (value: string) => {
+        if (!value || /^(https?:|data:|blob:)/i.test(value)) return false;
+        if (resolveAsset(noteRef.current.path, value) === abs) return true;
+        try {
+          return resolveAsset(noteRef.current.path, decodeURI(value)) === abs;
+        } catch {
+          return false;
+        }
+      };
+      edit.state.doc.descendants((node, pos) => {
+        // 图片节点
+        if (node.type.name === 'image') {
+          const src = String(node.attrs.src || '');
+          if (!matches(src)) return;
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
+          changed = true;
+          return;
+        }
+        // 附件可能是普通链接：替换链接 mark 的 href
+        if (!node.isText) return;
+        const link = node.marks.find((mark) => mark.type.name === 'link');
+        if (!link) return;
+        const href = String(link.attrs.href || '');
+        if (!matches(href)) return;
+        tr.addMark(pos, pos + node.nodeSize, link.type.create({ ...link.attrs, href: url }));
+        changed = true;
+      });
+      if (changed) edit.view.dispatch(tr);
+    };
+    window.addEventListener(ASSET_URL_EVENT, onAssetUrl);
 
     const dom = edit.view.dom;
 
@@ -822,6 +1014,7 @@ export function RichEditor({
       scroller?.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('glimnote:paste-clipboard', onPasteClipboard);
+      window.removeEventListener(ASSET_URL_EVENT, onAssetUrl);
       if (scrollTimer) window.clearTimeout(scrollTimer);
       setTableChip(null);
       setImageBar(null);
@@ -1279,15 +1472,27 @@ export function RichEditor({
           >
             <RotateCcw size={13} /> {tr('原始')}
           </button>
-          <button
-            type="button"
-            title={tr('预览图片')}
-            aria-label={tr('预览图片')}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={previewImage}
-          >
-            <Eye size={14} />
-          </button>
+          {imageBar.broken ? (
+            <button
+              type="button"
+              title={tr('重新加载这张图片')}
+              aria-label={tr('重新加载图片')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={retryImage}
+            >
+              <RotateCcw size={13} /> {tr('重新加载')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              title={tr('预览图片')}
+              aria-label={tr('预览图片')}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={previewImage}
+            >
+              <Eye size={14} />
+            </button>
+          )}
         </div>
       )}
       {linkPop && (

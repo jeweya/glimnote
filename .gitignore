@@ -10,6 +10,8 @@ dist-electron/
 Thumbs.db
 npm-debug.log*
 *.tsbuildinfo
+# Vite 每次重新加载配置时生成的临时包
+vite.config.ts.timestamp-*
 
 # 验证脚本生成的截图（scripts/*.mjs 会按需重新创建）
 shots*/
@@ -26,6 +28,10 @@ __pycache__/
 # AI 编码工具与工作记录：只在本机使用，不随仓库同步
 .claude/
 .workbuddy/
+
+# 安卓客户端：在独立仓库里维护，不跟笔记仓库一起提交
+android/
+ios/
 
 # 临时同步测试文件
 __sync_test.txt

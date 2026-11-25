@@ -69,6 +69,7 @@ import {
   type NotebookOrder,
 } from '../lib/notebookOrder';
 import { flushPrivacySync, syncPrivacyNow } from '../lib/privacySync';
+import { syncKeysNow } from '../lib/keySync';
 import { usePrivacy } from './privacy';
 
 export interface Toast {
@@ -85,7 +86,17 @@ export interface Toast {
 export type SyncState = 'local' | 'pending' | 'syncing' | 'synced' | 'error' | 'offline' | 'conflict';
 
 /** 设置弹窗的页签；「仅本地」直接落到同步页，不用再找 */
-export type SettingsTab = 'general' | 'security' | 'stats' | 'ai' | 'notify' | 'sync' | 'mcp' | 'keys' | 'about';
+export type SettingsTab =
+  | 'general'
+  | 'security'
+  | 'stats'
+  | 'ai'
+  | 'notify'
+  | 'sync'
+  | 'storage'
+  | 'mcp'
+  | 'keys'
+  | 'about';
 
 interface AppState {
   ready: boolean;
@@ -483,6 +494,8 @@ export const useApp = create<AppState>((set, get) => ({
     // 隐私锁与密码哈希也在仓库里：先合并进来，另一台设备锁上的笔记本同样受保护
     await syncPrivacyNow().catch(() => {});
     usePrivacy.getState().reloadFromStorage();
+    // 仓库里已有的 AI / 七牛密钥总是带回本机（上传开关只控制要不要往外传）
+    await syncKeysNow().catch(() => {});
     const notes = await repo.loadNotes();
     const trash = await repo.loadTrash();
     rebuild(notes);
@@ -567,6 +580,8 @@ export const useApp = create<AppState>((set, get) => ({
     // 拉取下来的仓库可能带着另一台设备的锁 / 密码：合并后再刷新界面状态
     await syncPrivacyNow().catch(() => {});
     usePrivacy.getState().reloadFromStorage();
+    // 另一台设备改过仓库里的密钥时，这里也自动补上，不需要先拨开关
+    await syncKeysNow().catch(() => {});
     // 同步 / 外部改动之后，首页把 home/ 里的分组和入口重读一遍
     window.dispatchEvent(new Event('glimnote:repo-refreshed'));
   },

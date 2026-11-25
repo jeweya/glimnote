@@ -93,6 +93,20 @@ import {
   attachLimitMb,
   setAttachLimitMb,
 } from '../lib/editorBridge';
+import {
+  QINIU_SECTION_EVENT,
+  clearQiniuConfig,
+  consumeQiniuSectionJump,
+  isQiniuEnabled,
+  isQiniuTestDomain,
+  normalizeQiniuDomain,
+  readQiniuConfig,
+  saveQiniuConfig,
+  setQiniuEnabled,
+  splitQiniuDomain,
+  testQiniuUpload,
+  type QiniuConfig,
+} from '../lib/qiniu';
 import { buildDiagnostics, errorText, log } from '../lib/log';
 import { remindersEnabled, setRemindersEnabled } from '../lib/reminders';
 import { cn, dateKey, downloadText, timeKey } from '../lib/utils';
@@ -113,6 +127,18 @@ import { WorkspaceDialog } from './WorkspaceDialog';
 import { ConfirmDialog } from './Confirm';
 import { CreateRepoPrompt } from './CreateRepoPrompt';
 import { StatsPanel } from './StatsPanel';
+import { LocalStoragePanel } from './LocalStoragePanel';
+import { QiniuHelpDialog } from './QiniuHelpDialog';
+import {
+  KEY_SYNC_EVENT,
+  keySyncEnabled,
+  removeSyncedKey,
+  setKeySyncEnabled,
+  syncKeysNow,
+} from '../lib/keySync';
+
+/** 七牛存储空间的默认名字：在七牛新建同名空间就能直接开用 */
+const QINIU_DEFAULT_BUCKET = 'glimnote';
 
 /** 同步状态用中文说人话，别把内部状态名直接摆给用户 */
 const SYNC_LABEL: Record<string, string> = {
@@ -266,6 +292,28 @@ export function SettingsModal() {
   const [wsBusy, setWsBusy] = useState(false);
   const [attachMb, setAttachMb] = useState(() => attachLimitMb());
   const [attachDraft, setAttachDraft] = useState(() => String(attachLimitMb()));
+  // 七牛云配置只存本机；草稿和已保存状态分开，改到一半关掉设置不影响已生效的配置
+  const [qiniu, setQiniu] = useState<QiniuConfig>(
+    () =>
+      readQiniuConfig() ?? {
+        accessKey: '',
+        secretKey: '',
+        bucket: QINIU_DEFAULT_BUCKET,
+        domain: '',
+      },
+  );
+  const [qiniuReady, setQiniuReady] = useState(() => Boolean(readQiniuConfig()));
+  /** 云存储总开关：关掉后新图片 / 附件存本机，配置保留 */
+  const [qiniuOn, setQiniuOn] = useState(() => isQiniuEnabled());
+  // 密钥是否跟着 Git 同步；默认关，只在用户明确打开时才写进仓库
+  const [qiniuKeySync, setQiniuKeySync] = useState(() => keySyncEnabled('qiniu'));
+  const [showQiniuSecret, setShowQiniuSecret] = useState(false);
+  const [qiniuBusy, setQiniuBusy] = useState(false);
+  const [qiniuMsg, setQiniuMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  // 「太复杂不会配置？」的兜底弹窗：用本地存储，或让 AI 带着配
+  const [qiniuHelpOpen, setQiniuHelpOpen] = useState(false);
+  // 「存储」页里的两个子页签：云存储设置 / 存储管理
+  const [storageTab, setStorageTab] = useState<'cloud' | 'local'>('cloud');
   // 预设档位和 loadSyncInterval 的默认值保持一致：5 / 15 / 60 分钟
   const syncPresets = [5, 15, 60];
   const [customInterval, setCustomInterval] = useState(() => !syncPresets.includes(syncInterval));
@@ -276,6 +324,7 @@ export function SettingsModal() {
   // 数字输入框单独存草稿：边输边 clamp 的话，删到一半就会被跳成默认值
   const [maxDraft, setMaxDraft] = useState(() => String(loadAiConfig().maxTokens));
   const [aiKey, setAiKey] = useState(() => loadAiKey());
+  const [aiKeySync, setAiKeySync] = useState(() => keySyncEnabled('ai'));
   const [showKey, setShowKey] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ kind: 'ok' | 'bad' | 'info'; text: string } | null>(null);
   const [aiTesting, setAiTesting] = useState(false);
@@ -329,6 +378,41 @@ export function SettingsModal() {
       if (saveFlashTimer.current) window.clearTimeout(saveFlashTimer.current);
     };
   }, []);
+
+  // 打开设置时同步一次七牛云配置：别的窗口 / 提示弹窗里改过也不会显示成旧值
+  useEffect(() => {
+    if (!open) return;
+    const saved = readQiniuConfig();
+    setQiniu(
+      saved ?? { accessKey: '', secretKey: '', bucket: QINIU_DEFAULT_BUCKET, domain: '' },
+    );
+    setQiniuReady(Boolean(saved));
+    setQiniuOn(isQiniuEnabled());
+    setShowQiniuSecret(false);
+    setQiniuMsg(null);
+  }, [open]);
+
+  // 从「图片存到哪」的提示点「去配置」进来：等正文挂载后滚到七牛云这一节
+  useEffect(() => {
+    if (!open) return;
+    const locate = (delay: number) => {
+      window.setTimeout(() => {
+        document.getElementById('set-qiniu')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, delay);
+    };
+    // 点「去配置」的那一下可能早于本组件挂载，先看有没有留下的跳转标记
+    if (consumeQiniuSectionJump()) {
+      setStorageTab('cloud');
+      locate(120);
+    }
+    const onLocate = () => {
+      consumeQiniuSectionJump();
+      setStorageTab('cloud');
+      locate(60);
+    };
+    window.addEventListener(QINIU_SECTION_EVENT, onLocate);
+    return () => window.removeEventListener(QINIU_SECTION_EVENT, onLocate);
+  }, [open]);
 
   // 版本号运行时从主进程取：安装包升级后界面立即显示新版本，
   // 不再依赖构建时写死的 __APP_VERSION__（曾经因此显示成上一版）。
@@ -572,6 +656,21 @@ export function SettingsModal() {
     return () => window.clearTimeout(timer);
   }, [installCountdown, bridge]);
 
+  // 同步把另一台设备的密钥带回来时，设置页里空着的输入框跟着补上。
+  // 必须放在 `if (!open) return null` 之前：否则关闭和打开时 hook 数量不同会直接崩溃
+  useEffect(() => {
+    const onApplied = () => {
+      setAiKey((cur) => cur || loadAiKey());
+      const cfg = readQiniuConfig();
+      if (cfg) {
+        setQiniu((cur) => (cur.accessKey && cur.secretKey ? cur : cfg));
+        setQiniuReady(true);
+      }
+    };
+    window.addEventListener(KEY_SYNC_EVENT, onApplied);
+    return () => window.removeEventListener(KEY_SYNC_EVENT, onApplied);
+  }, []);
+
   if (!open) return null;
 
   const close = () => setSettings(false);
@@ -661,6 +760,152 @@ export function SettingsModal() {
         ? t('附件上限已保存')
         : t('已按 {min}–{max}MB 调整', { min: ATTACH_LIMIT_MIN, max: ATTACH_LIMIT_MAX }),
     );
+  };
+
+  const qiniuDomainParts = splitQiniuDomain(qiniu.domain);
+
+  const qiniuComplete = Boolean(
+    qiniu.accessKey.trim() && qiniu.secretKey.trim() && qiniu.bucket.trim() && qiniuDomainParts.host,
+  );
+
+  /** 输入框只显示主机名；粘贴完整 URL 时自动把协议拆到左边的下拉框 */
+  const changeQiniuDomain = (raw: string) => {
+    const parsed = splitQiniuDomain(raw);
+    setQiniu((v) => {
+      const protocol = /^https?:\/\//i.test(raw.trim())
+        ? parsed.protocol
+        : splitQiniuDomain(v.domain).protocol;
+      return { ...v, domain: `${protocol}://${parsed.host}` };
+    });
+    setQiniuMsg(null);
+  };
+
+  const changeQiniuProtocol = (protocol: 'http' | 'https') => {
+    setQiniu((v) => {
+      // 域名先空着也把协议记住，等填主机名时就能直接拼上
+      const host = splitQiniuDomain(v.domain).host;
+      return { ...v, domain: `${protocol}://${host}` };
+    });
+    setQiniuMsg(null);
+  };
+
+  /**
+   * 把本机密钥写进仓库并标记待提交。
+   * 只在本机这一项开关打开、或刚改过这项密钥时调用；
+   * 关掉开关不会反过来删除仓库里的记录。
+   */
+  const pushKeysToRepo = () => {
+    const store = useApp.getState();
+    void syncKeysNow()
+      .then(() => store.markPending())
+      .catch((e) => console.warn('key sync failed', e));
+  };
+
+  /** 用户主动清除某项密钥时，连同仓库里的记录一起删掉，否则下次同步又会被导回来 */
+  const dropKeysFromRepo = (feature: 'ai' | 'qiniu') => {
+    const store = useApp.getState();
+    void removeSyncedKey(feature)
+      .then(() => store.markPending())
+      .catch((e) => console.warn('remove synced key failed', e));
+  };
+
+  const applyKeySync = (feature: 'ai' | 'qiniu', on: boolean) => {
+    if (feature === 'ai') setAiKeySync(on);
+    else setQiniuKeySync(on);
+    setKeySyncEnabled(feature, on);
+    // 开关只决定「这台设备的这份密钥要不要上传」；
+    // 关掉时仓库里已有的记录原样保留，其它设备同步过去仍能自动使用
+    if (on) pushKeysToRepo();
+    toast(
+      on
+        ? t('已开启上传：提交后这份密钥会写进私有仓库，其它设备同步即可使用')
+        : t('已关闭上传：仓库里已有的密钥仍会自动导入这台设备'),
+      'info',
+    );
+  };
+
+  const persistQiniu = () => {
+    if (!qiniuComplete) return;
+    const saved = saveQiniuConfig(qiniu);
+    // 保存成功就代表用户想用云存储：自动把开关打开
+    setQiniuEnabled(true);
+    setQiniu(saved);
+    setQiniuReady(true);
+    setQiniuOn(true);
+    setQiniuMsg({ text: t('已保存并开启云存储，之后的图片和附件会直接上传到七牛云'), ok: true });
+    flashSaved('qiniu', t('七牛云配置已保存'));
+    if (qiniuKeySync) pushKeysToRepo();
+  };
+
+  /** 顶部开关：打开前必须有完整配置，否则只提醒、不硬开 */
+  const toggleQiniu = (next: boolean) => {
+    if (!next) {
+      setQiniuEnabled(false);
+      setQiniuOn(false);
+      setQiniuMsg({ text: t('已关闭云存储，新插入的图片和附件会存进本机仓库'), ok: true });
+      return;
+    }
+    if (!readQiniuConfig()) {
+      setQiniuOn(false);
+      setQiniuMsg({
+        text: t('还没有可用的七牛云配置：请在下面填好存储空间、密钥和域名，保存并测试通过后会自动打开'),
+        ok: false,
+      });
+      toast(t('先完成下面的七牛云配置，才能打开云存储'), 'warn');
+      return;
+    }
+    setQiniuEnabled(true);
+    setQiniuOn(true);
+    setQiniuMsg({ text: t('已打开云存储，新插入的图片和附件会上传到七牛云'), ok: true });
+  };
+
+  const runQiniuTest = async () => {
+    if (!qiniuComplete || qiniuBusy) return;
+    setQiniuBusy(true);
+    setQiniuMsg(null);
+    try {
+      // 能传到存储空间才保存，避免把写错的配置留成默认存储。
+      // 粘贴密钥常带首尾空格，先去掉再测，失败时也别把空格一起存下来。
+      const candidate = {
+        accessKey: qiniu.accessKey.trim(),
+        secretKey: qiniu.secretKey.trim(),
+        bucket: qiniu.bucket.trim(),
+        domain: normalizeQiniuDomain(qiniu.domain),
+      };
+      await testQiniuUpload(candidate);
+      const saved = saveQiniuConfig(candidate);
+      // 校验通过说明配置真的能用，自动打开开关
+      setQiniuEnabled(true);
+      setQiniu(saved);
+      setQiniuReady(true);
+      setQiniuOn(true);
+      setQiniuMsg({ text: t('连接成功，已自动开启云存储：图片和附件会直接上传到七牛云'), ok: true });
+      flashSaved('qiniu', t('七牛云已连接'));
+      if (qiniuKeySync) pushKeysToRepo();
+    } catch (e) {
+      setQiniuMsg({
+        text: t('连接失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }),
+        ok: false,
+      });
+    } finally {
+      setQiniuBusy(false);
+    }
+  };
+
+  const forgetQiniu = () => {
+    clearQiniuConfig();
+    setQiniu({
+      accessKey: '',
+      secretKey: '',
+      bucket: QINIU_DEFAULT_BUCKET,
+      domain: '',
+    });
+    setQiniuReady(false);
+    setQiniuOn(false);
+    setShowQiniuSecret(false);
+    setQiniuMsg({ text: t('已清除，之后的图片和附件会存进仓库'), ok: true });
+    flashSaved('qiniu', t('已清除七牛云配置'));
+    dropKeysFromRepo('qiniu');
   };
 
   const commitEveryCustom = () => {
@@ -981,6 +1226,8 @@ export function SettingsModal() {
     setMaxDraft(String(next.maxTokens));
     saveAiConfig(next);
     saveAiKey(aiKey.trim());
+    if (!aiKey.trim()) dropKeysFromRepo('ai');
+    else if (aiKeySync) pushKeysToRepo();
     setPrompts(saveAiPrompts(prompts));
     if (!silent) flashSaved('ai', t('AI 设置已保存'));
   };
@@ -1010,6 +1257,7 @@ export function SettingsModal() {
       setMaxDraft(String(cfg.maxTokens));
       saveAiConfig(cfg);
       saveAiKey(aiKey.trim());
+      if (aiKeySync) pushKeysToRepo();
       log('ai', 'info', 'AI 连接测试成功');
     } catch (e) {
       const msg = e instanceof AiError ? e.message : errorText(e);
@@ -1673,6 +1921,7 @@ export function SettingsModal() {
             [
               ['general', '常规'],
               ['sync', '同步'],
+              ['storage', '存储'],
               ['ai', 'AI'],
               ['notify', '通知'],
               ['mcp', 'MCP集成'],
@@ -2080,6 +2329,276 @@ export function SettingsModal() {
             </>
           )}
 
+          {tab === 'storage' && (
+            <div className="storage-page">
+              <div className="settings-subtabs" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={storageTab === 'cloud'}
+                  className={cn('settings-subtab', storageTab === 'cloud' && 'on')}
+                  onClick={() => setStorageTab('cloud')}
+                >
+                  <Cloud size={14} strokeWidth={1.8} /> {t('云存储设置')}
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={storageTab === 'local'}
+                  className={cn('settings-subtab', storageTab === 'local' && 'on')}
+                  onClick={() => setStorageTab('local')}
+                >
+                  <HardDrive size={14} strokeWidth={1.8} /> {t('存储管理')}
+                </button>
+              </div>
+
+              {storageTab === 'cloud' && (
+              <div className="qiniu-section" id="set-qiniu">
+                <div className="qiniu-head">
+                  <div>
+                    <div className="set-label">{t('图片与附件云存储（七牛云）')}</div>
+                    <div className="set-desc">
+                      {t(
+                        '打开后，新插入的图片和附件会直接上传到七牛云，笔记里只留外链，不占 Git 仓库；关掉则存进本机仓库，配置会保留，随时可以再打开。',
+                      )}
+                    </div>
+                  </div>
+                  <div className="qiniu-switch-wrap">
+                    <span className={cn('qiniu-switch-label', qiniuOn && 'on')}>
+                      {qiniuOn ? t('已开启') : t('已关闭')}
+                    </span>
+                    <button
+                      type="button"
+                      className={cn('switch', qiniuOn && 'on')}
+                      role="switch"
+                      aria-checked={qiniuOn}
+                      aria-label={t('启用七牛云存储')}
+                      title={qiniuOn ? t('关闭后改用本地存储') : t('打开后图片和附件上传到七牛云')}
+                      onClick={() => toggleQiniu(!qiniuOn)}
+                    />
+                  </div>
+                </div>
+
+                <div className="qiniu-notice" role="note">
+                  <Info size={15} strokeWidth={1.8} className="qiniu-notice-icon" />
+                  <div className="qiniu-notice-text">
+                    <strong>{t('存储空间必须设为「公开」访问')}</strong>
+                    <span>
+                      {t(
+                        '七牛新建的空间默认是私有：私有空间里的图片链接要带实时签名才能打开，贴进笔记会显示不出来。已经建好的空间，可以在控制台的空间设置里把访问控制改成公开。',
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="ext-link qiniu-notice-link"
+                    onClick={() => openExternal('https://portal.qiniu.com/kodo/bucket')}
+                  >
+                    {t('去空间设置')} <ExternalLink size={12} />
+                  </button>
+                </div>
+
+                <div className="qiniu-grid">
+                  <div className="field field-wide">
+                    <div className="field-label">
+                      <label htmlFor="qiniu-bucket">{t('存储空间（Bucket）')}</label>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() => openExternal('https://portal.qiniu.com/kodo/bucket')}
+                      >
+                        {t('去创建')} <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <input
+                      id="qiniu-bucket"
+                      className="input"
+                      value={qiniu.bucket}
+                      placeholder="glimnote"
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => {
+                        setQiniu((v) => ({ ...v, bucket: e.target.value }));
+                        setQiniuMsg(null);
+                      }}
+                    />
+                    <div className="qiniu-field-hint">
+                      {t('默认 glimnote，按建议创建空间后这里不用改；控制台里空间名不一样时再改成实际名字。新建空间时访问控制请选「公开」。')}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <div className="field-label">
+                      <label htmlFor="qiniu-ak">{t('AccessKey（AK）')}</label>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() => openExternal('https://portal.qiniu.com/user/key')}
+                      >
+                        {t('去获取')} <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <input
+                      id="qiniu-ak"
+                      className="input"
+                      value={qiniu.accessKey}
+                      placeholder={t('粘贴「密钥管理」里的 AK')}
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => {
+                        setQiniu((v) => ({ ...v, accessKey: e.target.value }));
+                        setQiniuMsg(null);
+                      }}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="field-label">
+                      <label htmlFor="qiniu-sk">{t('SecretKey（SK）')}</label>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() => setShowQiniuSecret((v) => !v)}
+                        title={showQiniuSecret ? t('隐藏密钥') : t('显示密钥')}
+                      >
+                        {showQiniuSecret ? <EyeOff size={12} /> : <Eye size={12} />}
+                        {showQiniuSecret ? t('隐藏') : t('显示')}
+                      </button>
+                    </div>
+                    <input
+                      id="qiniu-sk"
+                      className="input"
+                      type={showQiniuSecret ? 'text' : 'password'}
+                      value={qiniu.secretKey}
+                      placeholder={t('粘贴同一对密钥里的 SK')}
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => {
+                        setQiniu((v) => ({ ...v, secretKey: e.target.value }));
+                        setQiniuMsg(null);
+                      }}
+                    />
+                    <div className="qiniu-field-hint">
+                      {t('AK 和 SK 要一起填（上传时用 SK 签名），两者都只保存在本机。')}
+                    </div>
+                  </div>
+                  <div className="field field-wide">
+                    <div className="field-label">
+                      <label htmlFor="qiniu-domain">{t('访问域名')}</label>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() => openExternal('https://portal.qiniu.com/kodo/bucket')}
+                      >
+                        {t('去绑定')} <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div className="qiniu-domain-row">
+                      <div className="select-wrap qiniu-protocol">
+                        <select
+                          className="input select"
+                          aria-label={t('访问协议')}
+                          value={qiniuDomainParts.protocol}
+                          onChange={(e) => changeQiniuProtocol(e.target.value === 'https' ? 'https' : 'http')}
+                        >
+                          <option value="http">http://</option>
+                          <option value="https">https://</option>
+                        </select>
+                      </div>
+                      <input
+                        id="qiniu-domain"
+                        className="input"
+                        value={qiniuDomainParts.host}
+                        placeholder={t('你的域名')}
+                        spellCheck={false}
+                        autoComplete="off"
+                        onChange={(e) => changeQiniuDomain(e.target.value)}
+                      />
+                    </div>
+                    <div className="qiniu-domain-help">
+                      <span>{t('还没有域名？')}</span>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() => openExternal('https://wanwang.aliyun.com/')}
+                      >
+                        {t('去注册域名')} <ExternalLink size={12} />
+                      </button>
+                      <span className="qiniu-domain-help-dot">·</span>
+                      <button
+                        type="button"
+                        className="ext-link"
+                        onClick={() =>
+                          openExternal('https://developer.qiniu.com/kodo/8622/dev-the-binding-source-domain-name')
+                        }
+                      >
+                        {t('怎么绑定')} <ExternalLink size={12} />
+                      </button>
+                    </div>
+                    <div className="qiniu-field-hint">
+                      {t('域名每年几十元，注册后要实名；国内加速还需备案（约 1–3 周），备案前可以先用测试域名。')}
+                    </div>
+                    {isQiniuTestDomain(qiniu.domain) && (
+                      <div className="qiniu-field-hint qiniu-warn">
+                        {t('这是七牛测试域名：30 天后会被回收，而且不支持 HTTPS，只适合临时试用；长期使用请绑定自己的域名。')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="key-sync-row">
+                  <div className="key-sync-text">
+                    <div className="key-sync-title">{t('上传密钥到云端')}</div>
+                    <div className="key-sync-desc">
+                      {t(
+                        '开启后，AK/SK 会明文写进仓库的 .glimnote/keys.json，其它设备同步后可直接使用。只建议在私有仓库开启；密钥会留在 Git 历史里，之后删除也无法从旧提交中抹掉。关闭只会停止上传，仓库里已有的密钥仍会自动导入本机。',
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={cn('switch', qiniuKeySync && 'on')}
+                    role="switch"
+                    aria-checked={qiniuKeySync}
+                    aria-label={t('上传七牛密钥到云端')}
+                    title={qiniuKeySync ? t('关闭密钥上传') : t('开启密钥上传')}
+                    onClick={() => applyKeySync('qiniu', !qiniuKeySync)}
+                  />
+                </div>
+
+                <div className="qiniu-help-row">
+                  <button type="button" className="qiniu-help-link" onClick={() => setQiniuHelpOpen(true)}>
+                    <HelpCircle size={13} /> {t('太复杂不会配置？')}
+                  </button>
+                </div>
+
+                <div className="qiniu-foot">
+                  <button className="btn btn-primary" onClick={persistQiniu} disabled={!qiniuComplete}>
+                    <Check size={14} /> {t('保存配置')}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => void runQiniuTest()} disabled={!qiniuComplete || qiniuBusy}>
+                    {qiniuBusy ? <Loader2 size={14} className="spin" /> : <Zap size={14} />} {t('保存并测试')}
+                  </button>
+                  {qiniuReady && (
+                    <button className="btn btn-ghost" onClick={forgetQiniu}>
+                      {t('清除配置')}
+                    </button>
+                  )}
+                  {saveFlash?.key === 'qiniu' && (
+                    <span className="save-flash">
+                      <Check size={13} /> {saveFlash.text}
+                    </span>
+                  )}
+                </div>
+                {qiniuMsg && <div className={cn('qiniu-msg', qiniuMsg.ok ? 'ok' : 'bad')}>{qiniuMsg.text}</div>}
+                <div className="hint">
+                  {t(
+                    '点「保存并测试」会上传一个测试小文件，验证密钥、空间和域名是否都填对了。配置好后，可以在「存储管理」里补传已有资源，或右键正文里的本地图片单独上传。',
+                  )}
+                </div>
+              </div>
+              )}
+
+              {storageTab === 'local' && <LocalStoragePanel onConfigureCloud={() => setStorageTab('cloud')} />}
+            </div>
+          )}
+
           {tab === 'security' && <LockSettings />}
 
           {tab === 'notify' && <NotifySettings />}
@@ -2100,7 +2619,11 @@ export function SettingsModal() {
                   </button>
                 </div>
                 <span className="ai-head-note">
-                  {aiTab === 'conn' ? t('地址、模型和密钥只保存在这台设备') : t('展开一项即可修改，留空回落默认')}
+                  {aiTab === 'conn'
+                    ? aiKeySync
+                      ? t('地址和模型存在本机；密钥按下面的设置上传到私有仓库')
+                      : t('地址和模型存在本机；仓库里同步过的密钥会自动导入')
+                    : t('展开一项即可修改，留空回落默认')}
                 </span>
               </div>
 
@@ -2259,7 +2782,31 @@ export function SettingsModal() {
                         setAiStatus(null);
                       }}
                     />
-                    <div className="hint">{t('密钥只保存在这台设备的浏览器本地存储里，不会同步到仓库，也不会写进笔记。')}</div>
+                    <div className="hint">
+                      {aiKeySync
+                        ? t('已开启上传：密钥会明文写进仓库的 .glimnote/keys.json，跟着提交同步到其它设备。')
+                        : t('密钥不会上传到仓库，也不会写进笔记；但仓库里已有云同步的密钥时，这里会自动导入。')}
+                    </div>
+                  </div>
+
+                  <div className="key-sync-row">
+                    <div className="key-sync-text">
+                      <div className="key-sync-title">{t('上传密钥到云端')}</div>
+                      <div className="key-sync-desc">
+                        {t(
+                          '开启后，API Key 会明文写进仓库的 .glimnote/keys.json，其它设备同步后可直接使用。只建议在私有仓库开启；密钥会留在 Git 历史里，之后删除也无法从旧提交中抹掉。关闭只会停止上传，仓库里已有的密钥仍会自动导入本机。',
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className={cn('switch', aiKeySync && 'on')}
+                      role="switch"
+                      aria-checked={aiKeySync}
+                      aria-label={t('上传 AI 密钥到云端')}
+                      title={aiKeySync ? t('关闭密钥上传') : t('开启密钥上传')}
+                      onClick={() => applyKeySync('ai', !aiKeySync)}
+                    />
                   </div>
 
                   <div className="ai-foot">
@@ -3296,7 +3843,7 @@ export function SettingsModal() {
             confirmLabel={moving ? t('请稍候…') : t('开始迁移')}
             onCancel={() => {
               if (!moving) setRepoPick(null);
-            }}
+              }}
             onConfirm={() => void moveRepo()}
           />
         )}
@@ -3340,6 +3887,9 @@ export function SettingsModal() {
             }}
           />
         )}
+      {qiniuHelpOpen && (
+        <QiniuHelpDialog configured={qiniuReady} onClose={() => setQiniuHelpOpen(false)} />
+      )}
       </div>
     </div>
   );

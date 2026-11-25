@@ -41,6 +41,7 @@ import {
   wrapSelection,
 } from '../lib/editorBridge';
 import { pendingStyleExtensions, pendingStyleField, setPendingStyle } from '../lib/pendingStyle';
+import { ASSET_URL_EVENT, rewriteAssetLinks } from '../lib/assetLibrary';
 import { sanitizePastedText } from '../lib/rich/sanitize';
 import { escapeHtml } from '../lib/utils';
 import { t } from '../lib/i18n';
@@ -892,6 +893,20 @@ export function Editor({
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
     setActiveView(view);
+
+    // 资源上传后把源码里的本地路径换成云端链接（富文本编辑器有另一套实现）
+    const onAssetUrl = (event: Event) => {
+      if (viewRef.current !== view) return;
+      const detail = (event as CustomEvent<{ abs?: string; url?: string }>).detail;
+      const abs = String(detail?.abs || '');
+      const url = String(detail?.url || '');
+      if (!abs || !url) return;
+      const before = view.state.doc.toString();
+      const next = rewriteAssetLinks(before, noteRef.current.path, abs, url);
+      if (next === before) return;
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+    };
+    window.addEventListener(ASSET_URL_EVENT, onAssetUrl);
     if (startPos > 0) {
       // 从阅读预览切回来时光标要回到原处，别把人扔回文章开头
       requestAnimationFrame(() => {
@@ -911,6 +926,7 @@ export function Editor({
       if (document.activeElement === view.contentDOM) {
         /* 失去焦点由浏览器处理 */
       }
+      window.removeEventListener(ASSET_URL_EVENT, onAssetUrl);
       viewRef.current = null;
       setActiveView(null);
       view.destroy();

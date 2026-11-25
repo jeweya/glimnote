@@ -15,7 +15,9 @@ import {
   writeText,
 } from './storage';
 import { GitBridgeError, canProxyGit, gitHttp } from './gitHttp';
+import { invalidateAssetIndex, mergeAssetsIndexJson } from './assetIndex';
 import { mergePrivacyJson } from './privacySync';
+import { mergeKeysJson } from './keySync';
 import { log } from './log';
 import { t } from './i18n';
 
@@ -963,6 +965,16 @@ function mergeDriverFactory(keepOurs = false) {
       const merged = mergePrivacyJson(ours, theirs);
       if (merged) return { cleanMerge: true, mergedText: merged };
     }
+    // 密钥文件同理：两台设备各改各的时按时间戳取新，避免冲突副本里反而留下旧密钥
+    if (path === 'keys.json') {
+      const merged = mergeKeysJson(ours, theirs);
+      if (merged) return { cleanMerge: true, mergedText: merged };
+    }
+    // 资源登记表：两台设备各自上传 / 删除图片时按条目合并，避免为一张 JSON 生成冲突副本
+    if (path === 'assets-index.json') {
+      const merged = mergeAssetsIndexJson(ours, theirs);
+      if (merged) return { cleanMerge: true, mergedText: merged };
+    }
     return { cleanMerge: false, mergedText: '' };
   };
 }
@@ -1491,6 +1503,8 @@ export async function sync(
         throw e;
       }
     }
+    // checkout / 合并会改写工作区，assets/ 可能有增删：下次打开存储管理时重新对账
+    invalidateAssetIndex();
     return { pulled, pushed, commit: commit || null, conflicts: conflictPaths };
   } catch (e: any) {
     if (e instanceof GitError) throw e;

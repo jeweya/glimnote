@@ -11,6 +11,7 @@ import { ReminderApp } from './components/ReminderApp';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { desktop } from './lib/desktop';
 import { installLogCapture, log } from './lib/log';
+import { startAssetRefSync } from './lib/assetRefs';
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/extra.css';
@@ -42,6 +43,8 @@ installLogCapture();
 if (!capture && !card && !appWin && !dock && !reminder) {
   // 开发模式下页面也走 http，所以按「有没有桌面桥」判断，而不是看协议
   log('app', 'info', `界面启动 · ${desktop() ? '桌面版' : '网页版'}`);
+  // 引用记录跟着笔记走：主窗口启动后就开始维护登记表里的引用信息
+  startAssetRefSync();
 }
 
 createRoot(document.getElementById('root')!).render(

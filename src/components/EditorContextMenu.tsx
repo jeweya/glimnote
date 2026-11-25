@@ -3,6 +3,7 @@ import { openSearchPanel } from '@codemirror/search';
 import {
   Bold,
   ClipboardPaste,
+  CloudUpload,
   Copy,
   Heading1,
   Heading2,
@@ -18,8 +19,11 @@ import {
   Strikethrough,
   Type,
 } from 'lucide-react';
-import type { Toast } from '../store/app';
+import { useApp, type Toast } from '../store/app';
 import { getActiveView, toggleLinePrefix, wrapSelection } from '../lib/editorBridge';
+import { ROOT } from '../lib/storage';
+import { resolveAsset } from '../lib/assets';
+import { isQiniuEnabled, readQiniuConfig, requestQiniuSectionJump } from '../lib/qiniu';
 import {
   getActiveRichEditor,
   richDeleteSelection,
@@ -32,6 +36,7 @@ import {
 import { sanitizePastedText } from '../lib/rich/sanitize';
 import { htmlToPlainText, normalizeSourceText } from '../lib/rich/formattedPaste';
 import { Menu, type MenuEntry } from './Menu';
+import { AssetUploadDialog, type AssetTarget } from './AssetUploadDialog';
 import { useT } from '../lib/i18n';
 
 /** Editor 在右键时抛这个事件，带给它的是鼠标坐标（编辑器自己不想管菜单状态） */
@@ -164,11 +169,20 @@ async function readClipboard(): Promise<ClipboardPayload> {
 export function EditorContextMenu({ onPolish, onNotice }: Props) {
   const tr = useT();
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  // 右击到图片时记下地址，菜单顶部多出「上传到七牛云」
+  const [image, setImage] = useState<{ src: string; alt: string } | null>(null);
+  // 上传确认弹窗：先选「要不要删本地」，再真正开始传
+  const [uploadTarget, setUploadTarget] = useState<AssetTarget | null>(null);
 
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent<{ x: number; y: number }>).detail;
-      if (detail) setAt({ x: detail.x, y: detail.y });
+      const detail = (
+        e as CustomEvent<{ x: number; y: number; image?: { src: string; alt: string } }>
+      ).detail;
+      if (!detail) return;
+      setAt({ x: detail.x, y: detail.y });
+      // 已经是公网 / data 地址的图片不再提供上传入口
+      setImage(detail.image && !/^(https?:|data:|blob:)/i.test(detail.image.src) ? detail.image : null);
     };
     window.addEventListener(OPEN_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_EVENT, onOpen);
@@ -192,7 +206,42 @@ export function EditorContextMenu({ onPolish, onNotice }: Props) {
   const selected = rich ? richSelection()?.text || '' : view && sel ? view.state.sliceDoc(sel.from, sel.to) : '';
   const hasSel = selected.trim().length > 0;
 
-  const close = () => setAt(null);
+  const close = () => {
+    setAt(null);
+    setImage(null);
+  };
+
+  /** 图片右键专属：本地图片补传到七牛云；没配置就先带用户去配置 */
+  const uploadImage = () => {
+    if (!image) return;
+    const src = image.src;
+    close();
+    if (!readQiniuConfig()) {
+      onNotice(tr('先配置七牛云，再回来上传这张图片'), 'warn');
+      useApp.getState().setSettings(true, 'storage');
+      requestQiniuSectionJump();
+      return;
+    }
+    if (!isQiniuEnabled()) {
+      onNotice(tr('云存储开关是关着的，先在设置里打开再上传'), 'warn');
+      useApp.getState().setSettings(true, 'storage');
+      requestQiniuSectionJump();
+      return;
+    }
+    const notePath = useApp.getState().current?.path || '';
+    let decoded = src;
+    try {
+      decoded = decodeURI(src);
+    } catch {
+      /* 路径里的 % 不合法时按原样解析 */
+    }
+    const abs = resolveAsset(notePath, decoded);
+    if (!abs || !abs.startsWith(`${ROOT}/`)) {
+      onNotice(tr('找不到这张图片的本地文件'), 'warn');
+      return;
+    }
+    setUploadTarget({ abs });
+  };
 
   const cut = async () => {
     if (getActiveRichEditor()) {
@@ -323,6 +372,12 @@ export function EditorContextMenu({ onPolish, onNotice }: Props) {
   };
 
   const items: (MenuEntry | 'sep')[] = [
+    ...(image
+      ? ([
+          { label: tr('上传到七牛云'), icon: <CloudUpload size={14} />, onClick: uploadImage },
+          'sep',
+        ] as (MenuEntry | 'sep')[])
+      : []),
     { label: tr('剪切'), icon: <Scissors size={14} />, kbd: 'Ctrl+X', disabled: !hasSel, onClick: () => void cut() },
     { label: tr('复制'), icon: <Copy size={14} />, kbd: 'Ctrl+C', disabled: !hasSel, onClick: () => void copy() },
     { label: tr('粘贴'), icon: <ClipboardPaste size={14} />, kbd: 'Ctrl+V', onClick: () => void paste() },
@@ -345,6 +400,12 @@ export function EditorContextMenu({ onPolish, onNotice }: Props) {
     { label: tr('查找…'), icon: <Search size={14} />, kbd: 'Ctrl+F', onClick: find },
   ];
 
-  if (!at) return null;
-  return <Menu x={at.x} y={at.y} items={items} onClose={close} />;
+
+  if (!at && !uploadTarget) return null;
+  return (
+    <>
+      {at && <Menu x={at.x} y={at.y} items={items} onClose={close} />}
+      {uploadTarget && <AssetUploadDialog target={uploadTarget} onClose={() => setUploadTarget(null)} />}
+    </>
+  );
 }

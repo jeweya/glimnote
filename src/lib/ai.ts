@@ -108,6 +108,8 @@ export function clampAiMaxTokens(value: unknown): number {
 
 const CONFIG_KEY = 'glimnote.ai.config';
 const KEY_STORE = 'glimnote.ai.key';
+/** 密钥最后改动时间：开启「同步密钥到云端」后用来判断哪台设备的更新 */
+export const AI_KEY_AT = 'glimnote.ai.keyAt';
 
 export function defaultAiConfig(): AiConfig {
   return {
@@ -141,14 +143,19 @@ export function saveAiConfig(cfg: AiConfig) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
 }
 
-/** 密钥只放本机，不同步到仓库；和同步令牌一样，清缓存就没了 */
+/** 默认只放本机；在设置里开启「同步密钥到云端」后才会写进私有仓库 */
 export function loadAiKey() {
   return localStorage.getItem(KEY_STORE) || '';
 }
 
 export function saveAiKey(key: string) {
-  if (key) localStorage.setItem(KEY_STORE, key);
-  else localStorage.removeItem(KEY_STORE);
+  if (key) {
+    localStorage.setItem(KEY_STORE, key);
+    localStorage.setItem(AI_KEY_AT, new Date().toISOString());
+  } else {
+    localStorage.removeItem(KEY_STORE);
+    localStorage.removeItem(AI_KEY_AT);
+  }
 }
 
 /**

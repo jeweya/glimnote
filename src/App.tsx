@@ -21,6 +21,7 @@ import { HomePage } from './components/HomePage';
 import { IdeasPanel } from './components/IdeasPanel';
 import { Palette } from './components/Palette';
 import { SettingsModal } from './components/SettingsModal';
+import { QiniuPrompt } from './components/QiniuPrompt';
 import { SyncInvite } from './components/SyncInvite';
 import { MoveDialog } from './components/MoveDialog';
 import { Toasts } from './components/Toasts';
@@ -561,6 +562,7 @@ export default function App() {
       </div>
       <Palette />
       <SettingsModal />
+      <QiniuPrompt />
       <SyncInvite />
       <MoveDialog />
       <TaskReminders />

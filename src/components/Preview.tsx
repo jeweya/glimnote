@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify';
 import { readBinary } from '../lib/storage';
 import { escapeHtml } from '../lib/utils';
 import { mimeOf, parseImageAlt, resolveAsset } from '../lib/assets';
+import { isBrokenImage, retryBrokenImage, watchBrokenImages } from '../lib/rich/imageFallback';
 import { ImageLightbox } from './ImageLightbox';
 import { t, useT } from '../lib/i18n';
 
@@ -58,6 +59,9 @@ export function Preview({ content, notePath, onWiki, onNotice }: Props) {
       a.setAttribute('rel', 'noreferrer noopener');
     });
 
+    // 网络图片打不开时换成说明占位图；error 不冒泡，只能在容器上捕获
+    const stopWatch = watchBrokenImages(host);
+
     const images = Array.from(host.querySelectorAll('img'));
     void (async () => {
       for (const img of images) {
@@ -97,6 +101,7 @@ export function Preview({ content, notePath, onWiki, onNotice }: Props) {
 
     return () => {
       cancelled = true;
+      stopWatch();
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [html, notePath]);
@@ -149,6 +154,12 @@ export function Preview({ content, notePath, onWiki, onNotice }: Props) {
             return;
           }
           const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null;
+          // 裂图占位不打开大图，点一下是「再试一次」
+          if (img && isBrokenImage(img)) {
+            e.preventDefault();
+            retryBrokenImage(img);
+            return;
+          }
           if (img?.src && !img.classList.contains('broken')) {
             e.preventDefault();
             setViewer({ url: img.src, alt: img.alt || tr('图片') });

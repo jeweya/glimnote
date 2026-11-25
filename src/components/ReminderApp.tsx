@@ -22,8 +22,10 @@ export function ReminderApp() {
   const [items, setItems] = useState<DesktopReminderItem[]>([]);
   const bridge = desktop();
 
+  // 每张卡片各管各的：只移除被点的这一条，其余提醒继续留在桌面上。
+  // id 为空表示上锁汇总 / 按 Esc，才一次性收起全部。
   const act = (action: DesktopReminderAction, id: string) => {
-    setItems([]);
+    setItems((prev) => (id ? prev.filter((item) => item.id !== id) : []));
     void bridge?.reminderAction?.({ action, id });
   };
 
@@ -32,8 +34,13 @@ export function ReminderApp() {
     applyStoredTheme();
     const off = bridge?.onReminderData?.((list) => {
       const next = Array.isArray(list) ? list : [];
-      setItems(next);
-      if (next.length) playReminderChime();
+      setItems((prev) => {
+        // 主进程在处理完一条提醒后会把剩余列表回传一次，这里只在真正来了新待办时响提示音，
+        // 免得点「完成」后剩下的卡片又响一遍。
+        const known = new Set(prev.map((item) => item.id));
+        if (next.some((item) => item.id && !known.has(item.id))) playReminderChime();
+        return next;
+      });
     });
     return () => off?.();
   }, [bridge]);

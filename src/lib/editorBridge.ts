@@ -1,6 +1,8 @@
 import type { EditorView } from '@codemirror/view';
 import { ROOT, writeBinary } from './storage';
 import { t } from './i18n';
+import { loadQiniuConfig, promptQiniuOnce, uploadQiniuFile } from './qiniu';
+import { upsertAssetEntry } from './assetIndex';
 
 let active: EditorView | null = null;
 
@@ -111,6 +113,27 @@ export async function insertImageFile(
   onNotice?.(asset.notice);
 }
 
+/**
+ * 剪贴板 / 截图 / 网页复制来的图片，文件名几乎都叫 image.png、粘贴图片.png，
+ * 原样存进 assets/ 后，存储管理里会变成一排同名文件，完全分不清是哪张。
+ * 这类名字换成「笔记标题-截图」，靠内容哈希区分不同图片，同一张图仍会去重。
+ */
+const GENERIC_IMAGE_STEM =
+  /^(image|img|blob|clipboard|screenshot|scrnshot|untitled|paste|截图|图片|粘贴图片)([-_\s（(]?\d*[)）]?)?$/i;
+
+/** 文件名没有信息量时，换成能认出出处的名字；有意义的原名保持不动 */
+export function readableImageName(file: File, notePath: string) {
+  const stem = file.name.replace(/\.[^.]+$/, '').trim();
+  if (!GENERIC_IMAGE_STEM.test(stem)) return file;
+  const title = (notePath.split('/').pop() || '').replace(/\.md$/i, '').trim();
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  const prefix = title ? `${title.slice(0, 24)}-` : '';
+  return new File([file], `${prefix}${t('截图')}.${ext}`, {
+    type: file.type,
+    lastModified: file.lastModified,
+  });
+}
+
 /** 存图片到仓库，返回可直接写进 Markdown 的相对路径（源码编辑器与富文本编辑器共用） */
 export async function prepareImageAsset(
   file: File,
@@ -118,27 +141,57 @@ export async function prepareImageAsset(
   onNotice?: (text: string) => void,
 ): Promise<{ rel: string; alt: string; notice: string } | null> {
   if (!file.type.startsWith('image/')) return null;
-  const limit = effectiveAttachLimitMb();
+  const cfg = loadQiniuConfig();
+  // 走七牛云时不受 Git 平台单文件限制，只按用户设置的上限；存仓库时才取两者较小值
+  const limit = cfg ? attachLimitMb() : effectiveAttachLimitMb();
   // 先压缩再判断上限：一张 12MB 的截图压完完全能放进 Gitee 的单文件限制，
   // 没必要因为原图过大直接拒掉。
   const prepared = await compressImage(file);
   if (prepared.file.size > limit * 1024 * 1024) {
-    onNotice?.(t('图片超过 {n}MB 上限（平台单文件限制），已跳过', { n: limit }));
+    onNotice?.(
+      cfg
+        ? t('图片超过 {n}MB 上限，已跳过', { n: limit })
+        : t('图片超过 {n}MB 上限（平台单文件限制），已跳过', { n: limit }),
+    );
     return null;
   }
+
+  // 原名没有信息量时（image.png 之类）换成「标题-截图」，再进仓库 / 七牛云
+  const named = readableImageName(prepared.file, notePath);
+
+  // 配了七牛云就直传；上传失败不打断插入，退回仓库继续可用
+  let cloudUrl: string | null = null;
+  if (cfg) {
+    const { dir, name } = await assetLocation(named, 'png');
+    cloudUrl = await uploadQiniuFile(named, cfg, `${dir}/${name}`).catch(() => null);
+  }
+
   try {
-    const { dir, name } = await storeImage(prepared.file);
-    const rel = relativeAssetPath(notePath, dir, name);
-    const alt = file.name.replace(/\.[^.]+$/, '') || t('图片');
+    let rel: string;
+    if (cloudUrl) {
+      rel = cloudUrl;
+    } else {
+      const { dir, name } = await storeImage(named);
+      rel = relativeAssetPath(notePath, dir, name);
+      // 没配七牛云时，第一次插入图片给一次「要不要改用云存储」的说明
+      if (!cfg) promptQiniuOnce();
+    }
+    const originalStem = file.name.replace(/\.[^.]+$/, '').trim();
+    const alt = GENERIC_IMAGE_STEM.test(originalStem) ? t('截图') : originalStem || t('图片');
+    const baseNotice = prepared.compressed
+      ? `已插入图片 · ${fileSize(file.size)} → ${fileSize(prepared.file.size)}（自动压缩）`
+      : `已插入图片 · ${fileSize(file.size)}`;
     return {
       rel,
       alt,
-      notice: prepared.compressed
-        ? `已插入图片 · ${fileSize(file.size)} → ${fileSize(prepared.file.size)}（自动压缩）`
-        : `已插入图片 · ${fileSize(file.size)}`,
+      notice: cloudUrl
+        ? `${baseNotice} · 已上传七牛云`
+        : cfg
+          ? `${baseNotice} · 七牛云上传失败，已存进仓库`
+          : baseNotice,
     };
   } catch {
-    onNotice?.('图片保存失败');
+    onNotice?.(cfg ? '七牛云上传失败，本地仓库保存也失败' : '图片保存失败');
     return null;
   }
 }
@@ -196,8 +249,8 @@ async function compressImage(file: File): Promise<{ file: File; compressed: bool
   }
 }
 
-/** 把任意本地文件存进仓库的 assets/年/月，内容哈希去重 */
-export async function storeFile(file: File, fallbackExt = 'bin') {
+/** 资源在仓库 / 存储空间里的路径：assets/年/月/内容哈希-文件名.扩展名 */
+async function assetLocation(file: File, fallbackExt = 'bin') {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   const hash = [...new Uint8Array(digest)]
@@ -219,7 +272,15 @@ export async function storeFile(file: File, fallbackExt = 'bin') {
       .replace(/[\\/:*?"<>|\s]+/g, '-')
       .slice(0, 40) || 'file';
   const name = `${hash}-${base}.${ext}`;
+  return { bytes, dir, name };
+}
+
+/** 把任意本地文件存进仓库的 assets/年/月，内容哈希去重 */
+export async function storeFile(file: File, fallbackExt = 'bin') {
+  const { bytes, dir, name } = await assetLocation(file, fallbackExt);
   await writeBinary(`${ROOT}/${dir}/${name}`, bytes);
+  // 新文件立刻登记，存储管理下次打开不用再递归 stat 整个 assets/
+  await upsertAssetEntry(`${dir}/${name}`, bytes.length);
   return { dir, name };
 }
 
@@ -240,21 +301,36 @@ export async function prepareAttachmentAsset(
   onNotice?: (text: string) => void,
 ): Promise<{ rel: string; label: string; notice: string } | null> {
   const userLimit = attachLimitMb();
-  const limit = effectiveAttachLimitMb();
+  const cfg = loadQiniuConfig();
+  // 走七牛云时不再受仓库平台单文件上限约束
+  const limit = cfg ? userLimit : effectiveAttachLimitMb();
   if (file.size > limit * 1024 * 1024) {
     onNotice?.(
-      limit < userLimit
+      !cfg && limit < userLimit
         ? `文件超过 ${limit}MB（平台单文件上限），已跳过`
         : `文件超过 ${limit}MB 上限，已跳过；可在设置 → 常规里调整`,
     );
     return null;
   }
+
+  let cloudUrl: string | null = null;
+  if (cfg) {
+    const { dir, name } = await assetLocation(file);
+    cloudUrl = await uploadQiniuFile(file, cfg, `${dir}/${name}`).catch(() => null);
+  }
+
   try {
-    const { dir, name } = await storeFile(file);
-    const rel = relativeAssetPath(notePath, dir, name);
-    return { rel, label: file.name || name, notice: `已插入附件 · ${fileSize(file.size)}` };
+    let rel: string;
+    if (cloudUrl) {
+      rel = cloudUrl;
+    } else {
+      const { dir, name } = await storeFile(file);
+      rel = relativeAssetPath(notePath, dir, name);
+    }
+    const notice = `已插入附件 · ${fileSize(file.size)}${cloudUrl ? ' · 已上传七牛云' : cfg ? ' · 七牛云上传失败，已存进仓库' : ''}`;
+    return { rel, label: file.name || 'file', notice };
   } catch {
-    onNotice?.('附件保存失败');
+    onNotice?.(cfg ? '七牛云上传失败，本地仓库保存也失败' : '附件保存失败');
     return null;
   }
 }

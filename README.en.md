@@ -175,3 +175,5 @@ mcp/            MCP service (stdio / HTTP)
 docs/           screenshots used in the README
 scripts/        release helper scripts
 ```
+
+The Android client (Kotlin + Jetpack Compose) is maintained in its own repository. This repository does not include the `android/` directory, and it is Git-ignored.
