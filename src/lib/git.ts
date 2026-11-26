@@ -18,6 +18,7 @@ import { GitBridgeError, canProxyGit, gitHttp } from './gitHttp';
 import { invalidateAssetIndex, mergeAssetsIndexJson } from './assetIndex';
 import { mergePrivacyJson } from './privacySync';
 import { mergeKeysJson } from './keySync';
+import { mergeNotebookJson } from './notebookMap';
 import { log } from './log';
 import { t } from './i18n';
 
@@ -973,6 +974,11 @@ function mergeDriverFactory(keepOurs = false) {
     // 资源登记表：两台设备各自上传 / 删除图片时按条目合并，避免为一张 JSON 生成冲突副本
     if (path === 'assets-index.json') {
       const merged = mergeAssetsIndexJson(ours, theirs);
+      if (merged) return { cleanMerge: true, mergedText: merged };
+    }
+    // 笔记本映射表：两边各自改名 / 新建笔记本时按条目取较新的，ID 目录不会各写各的
+    if (path === 'notebooks.json') {
+      const merged = mergeNotebookJson(ours, theirs);
       if (merged) return { cleanMerge: true, mergedText: merged };
     }
     return { cleanMerge: false, mergedText: '' };

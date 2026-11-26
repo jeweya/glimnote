@@ -256,7 +256,6 @@ const EN: Record<string, string> = {
   常规: 'General',
   同步: 'Sync',
   通知: 'Notifications',
-  MCP集成: 'MCP',
   安全: 'Security',
   统计: 'Stats',
   快捷键: 'Shortcuts',
@@ -1373,7 +1372,7 @@ const EN: Record<string, string> = {
     'If they are missing, remind me to fully quit and restart the client — most clients only load a newly added MCP after a restart.',
   '如果你不能读写本机设置，直接告诉我该点哪里、把配置粘到哪里，不要编造文件路径。只修改 MCP 配置，不要改动我的笔记文件。':
     'If you cannot read or write local settings, tell me exactly where to click and what to paste — do not invent file paths. Only change the MCP configuration; do not modify my note files.',
-  '注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP集成」里打开服务开关。':
+  '注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP」里打开服务开关。':
     'Note: the MCP service is not running. If connection fails, remind me to turn on the service switch in Glimnote → Settings → MCP.',
 
   // 同步引导/系统应用缺失
@@ -2422,6 +2421,13 @@ const EN: Record<string, string> = {
   重启并安装: 'Restart & install',
   重新下载: 'Re-download',
   '重新下载失败：{err}': 'Re-download failed: {err}',
+  刷新笔记本索引: 'Refresh notebook index',
+  '刷新笔记本索引失败：{err}': 'Failed to refresh the notebook index: {err}',
+  '新笔记本已经使用唯一目录 ID；这里把旧笔记本的可读目录名也升级成 ID。升级后改名只改映射表，不再搬动文件。笔记内容不受影响。':
+    'New notebooks already use unique folder IDs. This also upgrades the readable folder names of older notebooks to IDs. After that, renaming only updates the mapping table instead of moving files. Note content is untouched.',
+  '已把 {n} 个旧笔记本升级为唯一目录 ID': 'Upgraded {n} legacy notebooks to unique folder IDs',
+  '所有笔记本都已使用唯一目录 ID': 'Every notebook already uses a unique folder ID',
+  '正在刷新…': 'Refreshing…',
   重新下载远端: 'Re-download from remote',
   '重新下载远端仓库？': 'Re-download the remote repo?',
   重新统计: 'Recalculate',

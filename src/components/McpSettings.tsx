@@ -6,7 +6,7 @@ import { desktop, type McpHttpState, type McpInfo } from '../lib/desktop';
 import { useT } from '../lib/i18n';
 
 /**
- * 设置 → MCP集成：把「用 WorkBuddy / Claude Desktop 等 AI 客户端通过 MCP 管笔记」做成一件事：
+ * 设置 → MCP：把「用 WorkBuddy / Claude Desktop 等 AI 客户端通过 MCP 管笔记」做成一件事：
  * 打开开关 → 复制一段配置 → 粘进客户端。服务由应用自己拉起，用户不用碰 .cmd。
  * 细节见 docs/mydoc/13-MCP集成.md。
  */
@@ -88,7 +88,7 @@ export function McpSettings() {
     tr('如果你不能读写本机设置，直接告诉我该点哪里、把配置粘到哪里，不要编造文件路径。只修改 MCP 配置，不要改动我的笔记文件。'),
     ...(state.running
       ? []
-      : ['', tr('注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP集成」里打开服务开关。')]),
+      : ['', tr('注意：MCP 服务当前未运行。连接失败时，提醒我先在萤光笔记的「设置 → MCP」里打开服务开关。')]),
   ].join('\n');
 
   const copy = async () => {

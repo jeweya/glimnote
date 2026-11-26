@@ -23,9 +23,20 @@ import {
   writeText,
   ensureDir,
 } from './storage';
+import {
+  deleteNotebookPath,
+  ensureNotebook,
+  ensureNotebookMap,
+  migrateLegacyNotebooks,
+  physicalNotebookDir,
+  renameNotebookPath,
+} from './notebookMap';
 
 export async function loadNotes() {
   jitter();
+  // Git 拉取可能换了另一份映射表；每次整库刷新都以磁盘上的映射为准，
+  // 否则另一台设备改名后本机侧栏会一直停在旧名字。
+  await ensureNotebookMap(true).catch(() => {});
   return scanNotes();
 }
 
@@ -43,7 +54,10 @@ function jitter() {
 }
 
 export async function uniquePath(notebook: string, title: string, ignorePath?: string) {
-  const dir = notebook ? `${NOTES}/${notebook}` : NOTES;
+  // 显示路径「工作/项目」被翻译成物理目录（新笔记本是 nb-xxxxxxxx）；
+  // 还没有映射记录时在这里补一条，笔记永远不会落到一个没人认识的目录名里
+  const physical = notebook ? await physicalNotebookDir(notebook) : '';
+  const dir = physical ? `${NOTES}/${physical}` : NOTES;
   const base = safeFileName(title);
   let candidate = `${dir}/${base}.md`;
   let i = 2;
@@ -481,45 +495,41 @@ export async function moveNote(note: Note, notebook: string): Promise<Note> {
 /**
  * 改名 / 移动文件夹。
  *
- * newPath 是完整的「父/新名字」，逐段清洗后保留层级：以前把整条路径里的 `/` 都换成
- * `-`，于是「工作/增值项目」改成「增值」会写成「工作-增值」，看起来像跑到了顶层；
- * 现在只替换前缀，后面的层级原样保留。
+ * 只改映射表：ID 笔记本在磁盘上的目录名不变，一篇笔记都不用搬；旧目录会顺手
+ * 升级成 ID 目录，从此改名彻底和文件移动解耦。返回受影响笔记的最新快照，
+ * 让调用方能在同一个状态更新里换掉 notebook，搜索索引不会出现空窗。
  */
-export async function renameNotebook(oldPath: string, newPath: string, notes: Note[]) {
+export async function renameNotebook(oldPath: string, newPath: string, notes: Note[]): Promise<Note[]> {
   const clean = newPath
     .split('/')
     .map((seg) => seg.trim().replace(/[\\/:*?"<>|]/g, '-'))
     .filter(Boolean)
     .join('/');
-  if (!clean || clean === oldPath) return 0;
-  const affected = notes.filter((n) => n.notebook === oldPath || n.notebook.startsWith(`${oldPath}/`));
-  for (const n of affected) {
-    const next = clean + n.notebook.slice(oldPath.length);
-    await moveNote(n, next);
-  }
-  // 笔记搬走后原目录会空着；只删掉确实为空的目录，里面有东西就保持原样
-  await removeEmptyFolders(`${NOTES}/${oldPath}`);
-  return affected.length;
+  if (!clean || clean === oldPath) return [];
+  const affectedIds = new Set(
+    notes.filter((n) => n.notebook === oldPath || n.notebook.startsWith(`${oldPath}/`)).map((n) => n.id),
+  );
+  await renameNotebookPath(oldPath, clean);
+  if (!affectedIds.size) return [];
+  const fresh = await scanNotes();
+  return fresh.filter((n) => affectedIds.has(n.id));
 }
 
-/** 显式删除笔记本后清掉磁盘上的空目录，避免下次扫描又把它显示回来 */
+/** 新笔记本先落一个空目录：空笔记本也要有磁盘依据，刷新时才不会被当成残留名字清掉 */
+export async function ensureNotebookDir(notebook: string) {
+  if (!notebook) return;
+  await ensureNotebook(notebook);
+}
+
+/** 显式删除笔记本：清掉映射记录（留墓碑）和磁盘目录 */
 export async function removeNotebookDir(notebook: string) {
   if (!notebook) return;
-  await removeEmptyFolders(`${NOTES}/${notebook}`);
+  await deleteNotebookPath(notebook);
 }
 
-async function removeEmptyFolders(dir: string) {
-  let cur = dir;
-  while (cur.startsWith(`${NOTES}/`)) {
-    try {
-      const entries = (await fs.promises.readdir(cur)) as unknown[];
-      if (entries.length) return;
-      await fs.promises.rmdir(cur);
-    } catch {
-      return;
-    }
-    cur = cur.slice(0, cur.lastIndexOf('/'));
-  }
+/** 设置页「刷新笔记本索引」：把旧的可读目录名统一升级成 ID */
+export async function migrateNotebooks() {
+  return migrateLegacyNotebooks();
 }
 
 export { NOTES };

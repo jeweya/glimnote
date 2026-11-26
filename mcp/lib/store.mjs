@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { StoreError } from './errors.mjs';
 import { createAppStore } from './appstore.mjs';
+import { createNotebookMap } from './notebooks.mjs';
 import {
   buildIdeaFile,
   buildNoteFile,
@@ -63,6 +64,8 @@ function inside(root, full) {
 export function createStore(rootInput) {
   const root = path.resolve(rootInput);
   const abs = (rel) => path.resolve(root, normRel(rel));
+  // 显示笔记本名 ↔ 物理 ID 目录；与桌面端共用 .glimnote/notebooks.json
+  const notebooks = createNotebookMap(root);
 
   function assertRel(rel, kind = 'any') {
     const clean = normRel(rel);
@@ -278,7 +281,8 @@ export function createStore(rootInput) {
   /* ---------------- 笔记 ---------------- */
 
   async function uniqueNotePath(notebook, title, ignoreRel) {
-    const dir = notebook ? `${NOTES_DIR}/${notebook}` : NOTES_DIR;
+    const physical = notebook ? await notebooks.physicalDir(notebook) : '';
+    const dir = physical ? `${NOTES_DIR}/${physical}` : NOTES_DIR;
     const base = safeFileName(title);
     let candidate = `${dir}/${base}.md`;
     let i = 2;
@@ -305,7 +309,8 @@ export function createStore(rootInput) {
         /* 单个坏文件不影响整体 */
       }
     }
-    return out;
+    // path 保持物理路径；notebook 换成映射表里的显示名，免得侧栏 / AI 看到一串 nb-xxxx
+    return notebooks.translateNotes(out);
   }
 
   async function scanNoteTrash() {
@@ -400,7 +405,8 @@ export function createStore(rootInput) {
     await writeNote(note);
     if (note.path !== oldPath) {
       await removeFile(abs(oldPath));
-      await pruneEmpty(path.dirname(abs(oldPath)), abs(NOTES_DIR));
+      // 不清理空的旧笔记本目录：旧式可读目录靠它留在映射表里，
+      // 也是侧栏「空笔记本」的依据；ID 目录留着同样没有副作用。
     }
     return note;
   }
@@ -452,7 +458,7 @@ export function createStore(rootInput) {
     note.path = rel;
     await writeNote(note);
     await removeFile(abs(original));
-    await pruneEmpty(path.dirname(abs(original)), abs(NOTES_DIR));
+    // 保留空目录（理由同上）：删掉最后一篇笔记不等于删掉笔记本
     return note;
   }
 
@@ -490,6 +496,10 @@ export function createStore(rootInput) {
   async function listNotebooks() {
     const notes = await scanNotes();
     const map = new Map();
+    // 空笔记本也列出来：映射表知道它存在，但 notes 里没有对应文件
+    for (const name of await notebooks.list()) {
+      map.set(name, { name, label: name || '（根目录）', count: 0, total: 0 });
+    }
     for (const note of notes) {
       const name = note.notebook || '';
       const item = map.get(name) || { name, label: name || '（根目录）', count: 0, total: 0 };

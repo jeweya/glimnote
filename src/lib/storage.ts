@@ -2,6 +2,7 @@ import FS from '@isomorphic-git/lightning-fs';
 import { buildFile, excerptOf, parseNote, type Note } from './markdown';
 import { parseTask, type Task } from './tasks';
 import { parseIdea, type Idea } from './ideas';
+import { ensureNotebookMap, listNotebookPaths, notebookOfNotePath } from './notebookMap';
 
 export const ROOT = '/repo';
 export const NOTES = `${ROOT}/notes`;
@@ -176,13 +177,10 @@ export async function walk(dir: string, out: string[] = []): Promise<string[]> {
 }
 
 /**
- * 扫描 notes/ 下真实存在的文件夹，返回相对 notes/ 的路径。
- *
- * 侧栏的笔记本列表原本只来自「有笔记的目录 + 本机记录」，文件夹里的笔记删完以后，
- * 空目录还在磁盘上，但侧栏会把它当成不存在——日记这类固定文件夹看起来就“消失了”。
- * 启动和刷新时把磁盘上的目录并进来，空文件夹才能一直留着。
+ * 扫描 notes/ 下真实存在的文件夹，返回物理目录（相对 notes/）。
+ * 只给映射表做登记用；界面要的是 scanNotebookDirs() 翻译后的显示路径。
  */
-export async function scanNotebookDirs(
+export async function scanPhysicalDirs(
   dir: string = NOTES,
   prefix = '',
   out: string[] = [],
@@ -206,9 +204,20 @@ export async function scanNotebookDirs(
     if (!st.isDirectory()) continue;
     const rel = prefix ? `${prefix}/${name}` : name;
     out.push(rel);
-    await scanNotebookDirs(full, rel, out);
+    await scanPhysicalDirs(full, rel, out);
   }
   return out;
+}
+
+/**
+ * 界面用的笔记本列表：映射表里的显示路径。
+ *
+ * 磁盘目录现在可能叫 nb-xxxxxxxx，直接扫目录会把一串 ID 摆到侧栏上。
+ * 映射表还会保留「空的 ID 笔记本」——空目录不跟着 Git 同步，另一台设备上
+ * 还没建目录时也要能看见。
+ */
+export async function scanNotebookDirs(): Promise<string[]> {
+  return listNotebookPaths();
 }
 
 export async function readText(path: string) {
@@ -303,12 +312,18 @@ export async function removePath(path: string) {
 }
 
 export async function scanNotes(): Promise<Note[]> {
+  // 先把映射表读齐并补登记磁盘上的新目录，否则 ID 目录会原样冒到侧栏上
+  await ensureNotebookMap().catch(() => {});
   const files = await walk(NOTES);
   const notes: Note[] = [];
   for (const f of files) {
     try {
       const raw = await readText(f);
-      notes.push(parseNote(f.replace(`${ROOT}/`, ''), raw));
+      const note = parseNote(f.replace(`${ROOT}/`, ''), raw);
+      // note.path 仍然是物理路径（读写删都靠它）；只把 notebook 换成显示路径
+      const display = notebookOfNotePath(note.path);
+      if (display !== null) note.notebook = display;
+      notes.push(note);
     } catch (e) {
       console.warn('skip note', f, e);
     }

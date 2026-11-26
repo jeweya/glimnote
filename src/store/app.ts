@@ -505,14 +505,10 @@ export const useApp = create<AppState>((set, get) => ({
       notes.find((n) => n.id === lastId) ||
       notes.sort((a, b) => +new Date(b.updated) - +new Date(a.updated))[0] ||
       null;
-    const storedNotebooks = JSON.parse(localStorage.getItem('glimnote.notebooks') || '[]') as string[];
-    // 把磁盘上真实存在的文件夹也并进来：笔记删完后「日记」这类空文件夹还在，
-    // 但本地记录里可能没有它，只看笔记会让它从侧栏消失。
-    const diskNotebooks = await repo.loadNotebookDirs().catch(() => [] as string[]);
-    const custom = [...new Set([...storedNotebooks, ...diskNotebooks])];
-    if (custom.length !== storedNotebooks.length) {
-      localStorage.setItem('glimnote.notebooks', JSON.stringify(custom));
-    }
+    // 笔记本列表以仓库里的映射表为准：显示名和物理 ID 目录的对应关系都在那里面。
+    // 不再读 localStorage 里的旧名字，改名后残留的旧记录就不会再复活。
+    const notebooks = await repo.loadNotebookDirs().catch(() => [] as string[]);
+    localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
     const pendingLocal = Boolean(get().cfg && get().token) && localStorage.getItem(PENDING_KEY) === '1';
     // 默认先看首页；设置里关掉后沿用上次打开的笔记
     const startHome = localStorage.getItem('glimnote.startHome') !== '0';
@@ -520,7 +516,7 @@ export const useApp = create<AppState>((set, get) => ({
       notes,
       trash,
       current,
-      notebooks: custom,
+      notebooks,
       ready: true,
       syncState: pendingLocal ? 'pending' : 'local',
       view: startHome
@@ -548,10 +544,11 @@ export const useApp = create<AppState>((set, get) => ({
     const notes = await repo.loadNotes();
     const trash = await repo.loadTrash();
     rebuild(notes);
-    // 同步、删除之后重新对齐磁盘目录，空文件夹也留在侧栏
-    const diskNotebooks = await repo.loadNotebookDirs().catch(() => [] as string[]);
-    const notebooks = [...new Set([...get().notebooks, ...diskNotebooks])];
-    const notebooksChanged = notebooks.length !== get().notebooks.length;
+    // 同步、删除之后重新对齐映射表：空笔记本、另一台设备的改名都在这里收口
+    const notebooks = await repo.loadNotebookDirs().catch(() => get().notebooks);
+    const prevNotebooks = get().notebooks;
+    const notebooksChanged =
+      notebooks.length !== prevNotebooks.length || notebooks.some((n, i) => n !== prevNotebooks[i]);
     if (notebooksChanged) localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
     const cur = get().current;
     const fresh = cur ? notes.find((n) => n.id === cur.id) : null;
@@ -1529,7 +1526,7 @@ export const useApp = create<AppState>((set, get) => ({
     });
   },
 
-  addNotebook(name) {
+  async addNotebook(name) {
     // 允许「父/子/孙」这样的层级路径：逐段清洗，只保留段与段之间的斜杠
     const clean = name
       .split('/')
@@ -1537,6 +1534,8 @@ export const useApp = create<AppState>((set, get) => ({
       .filter(Boolean)
       .join('/');
     if (!clean) return;
+    // 空笔记本也要先建目录：刷新时只认磁盘上真实存在的名字
+    await repo.ensureNotebookDir(clean).catch(() => {});
     const notebooks = [...new Set([...get().notebooks, clean])];
     localStorage.setItem('glimnote.notebooks', JSON.stringify(notebooks));
     set({ notebooks, view: { type: 'notebook', value: clean } });
@@ -1557,12 +1556,10 @@ export const useApp = create<AppState>((set, get) => ({
     const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
     const next = parent ? `${parent}/${clean}` : clean;
     if (next === path) return;
-    // 文件夹里可能有还没落盘的编辑：先取消旧路径的定时写入，
-    // 由下面的移动把状态里的最新内容写进新路径，避免旧文件被重新写回来
-    for (const n of get().notes) {
-      if (n.notebook === path || n.notebook.startsWith(`${path}/`)) cancelScheduledWrite(n.id);
-    }
-    await repo.renameNotebook(path, next, get().notes);
+    // 旧目录升级成 ID 目录时会真的搬动文件：先把没落盘的编辑写回原路径，
+    // 否则旧路径上的定时写入会在搬家之后又把旧目录建回来。
+    await get().flushPendingWrites();
+    const moved = await repo.renameNotebook(path, next, get().notes);
     usePrivacy.getState().renameFolderLock(path, next);
     const notebooks = get().notebooks.map((n) =>
       n === path || n.startsWith(`${path}/`) ? next + n.slice(path.length) : n,
@@ -1576,7 +1573,15 @@ export const useApp = create<AppState>((set, get) => ({
     // 改名后手动顺序也要跟着换名字，否则这一级会退回按名称排
     const order = orderAfterRename(get().notebookOrder, path, next);
     saveNotebookOrder(order);
-    set({ notebooks, view: nextView, notebookOrder: order });
+    // 视图已经指向新名字，列表和搜索索引必须在同一个 set 里换成新路径：
+    // 等 refresh() 读完整个仓库再更新的话，中间这段时间 view 是新笔记本、
+    // notes 还挂在旧笔记本上，列表和笔记本内的搜索会短暂地什么都搜不到。
+    const movedById = new Map(moved.map((n) => [n.id, n]));
+    const notes = moved.length ? get().notes.map((n) => movedById.get(n.id) || n) : get().notes;
+    if (moved.length) rebuild(notes);
+    const cur = get().current;
+    const current = cur ? movedById.get(cur.id) || cur : null;
+    set({ notes, current, notebooks, view: nextView, notebookOrder: order });
     await get().refresh();
     get().markPending();
     get().toast(`已重命名为「${clean}」`, 'success');
@@ -1613,11 +1618,9 @@ export const useApp = create<AppState>((set, get) => ({
       i += 1;
     }
     const next = target ? `${target}/${finalName}` : finalName;
-    // 同改名：先取消旧路径的定时写入，移动时会把最新内容写到新路径
-    for (const n of get().notes) {
-      if (n.notebook === path || n.notebook.startsWith(`${path}/`)) cancelScheduledWrite(n.id);
-    }
-    await repo.renameNotebook(path, next, get().notes);
+    // 同改名：先把没落盘的编辑写回原路径，再搬目录
+    await get().flushPendingWrites();
+    const moved = await repo.renameNotebook(path, next, get().notes);
     usePrivacy.getState().renameFolderLock(path, next);
 
     const notebooks = get().notebooks.map((n) =>
@@ -1633,7 +1636,15 @@ export const useApp = create<AppState>((set, get) => ({
       view.type === 'notebook' && (view.value === path || view.value.startsWith(`${path}/`))
         ? { ...view, value: next + view.value.slice(path.length) }
         : view;
-    set({ notebooks, view: nextView, notebookOrder: order });
+    // 视图已经指向新名字，列表和搜索索引必须在同一个 set 里换成新路径：
+    // 等 refresh() 读完整个仓库再更新的话，中间这段时间 view 是新笔记本、
+    // notes 还挂在旧笔记本上，列表和笔记本内的搜索会短暂地什么都搜不到。
+    const movedById = new Map(moved.map((n) => [n.id, n]));
+    const notes = moved.length ? get().notes.map((n) => movedById.get(n.id) || n) : get().notes;
+    if (moved.length) rebuild(notes);
+    const cur = get().current;
+    const current = cur ? movedById.get(cur.id) || cur : null;
+    set({ notes, current, notebooks, view: nextView, notebookOrder: order });
     await get().refresh();
     get().markPending();
     get().toast(`已移到「${target || '全部笔记'}」`, 'success');

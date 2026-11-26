@@ -53,6 +53,7 @@ import {
   type RepoSize,
 } from '../lib/git';
 import { exportAllZip } from '../lib/export';
+import { migrateNotebooks } from '../lib/repo';
 import { importMarkdownFiles } from '../lib/importer';
 import {
   desktop,
@@ -253,7 +254,7 @@ export function SettingsModal() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [compactAsk, setCompactAsk] = useState(false);
   const [resetAsk, setResetAsk] = useState(false);
-  const [repoBusy, setRepoBusy] = useState<'' | 'compact' | 'reset'>('');
+  const [repoBusy, setRepoBusy] = useState<'' | 'compact' | 'reset' | 'notebooks'>('');
   const [size, setSize] = useState<RepoSize | null>(null);
   const [sizeLoading, setSizeLoading] = useState(false);
   const [closeToTray, setCloseToTray] = useState(() => localStorage.getItem('glimnote.closeToTray') !== '0');
@@ -969,6 +970,26 @@ export function SettingsModal() {
       toast(t('已按远端最新历史重建本地仓库'), 'success');
     } catch (e) {
       toast(t('重新下载失败：{err}', { err: errorText(e) }), 'error');
+    } finally {
+      setRepoBusy('');
+    }
+  };
+
+  /** 把旧的可读目录名升级成 nb-xxxxxxxx：只搬一次目录，以后改名只改映射表 */
+  const doMigrateNotebooks = async () => {
+    setRepoBusy('notebooks');
+    try {
+      await flushPendingWrites();
+      const count = await migrateNotebooks();
+      await refresh();
+      toast(
+        count
+          ? t('已把 {n} 个旧笔记本升级为唯一目录 ID', { n: count })
+          : t('所有笔记本都已使用唯一目录 ID'),
+        'success',
+      );
+    } catch (e) {
+      toast(t('刷新笔记本索引失败：{err}', { err: errorText(e) }), 'error');
     } finally {
       setRepoBusy('');
     }
@@ -1924,7 +1945,7 @@ export function SettingsModal() {
               ['storage', '存储'],
               ['ai', 'AI'],
               ['notify', '通知'],
-              ['mcp', 'MCP集成'],
+              ['mcp', 'MCP'],
               ['security', '安全'],
               ['stats', '统计'],
               ['keys', '快捷键'],
@@ -3189,6 +3210,22 @@ export function SettingsModal() {
                     <button className="btn btn-secondary" onClick={() => setResetAsk(true)} disabled={repoBusy !== ''}>
                       {repoBusy === 'reset' ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />}
                       {repoBusy === 'reset' ? t('正在下载…') : t('重新下载')}
+                    </button>
+                  </div>
+                  <div className="set-row">
+                    <div>
+                      <div className="set-label">{t('刷新笔记本索引')}</div>
+                      <div className="set-desc">
+                        {t('新笔记本已经使用唯一目录 ID；这里把旧笔记本的可读目录名也升级成 ID。升级后改名只改映射表，不再搬动文件。笔记内容不受影响。')}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => void doMigrateNotebooks()}
+                      disabled={repoBusy !== ''}
+                    >
+                      {repoBusy === 'notebooks' ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                      {repoBusy === 'notebooks' ? t('正在刷新…') : t('刷新笔记本索引')}
                     </button>
                   </div>
                   <div className="set-row set-row-stack">

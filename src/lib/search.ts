@@ -149,8 +149,9 @@ export function searchNotes(notes: Note[], raw: string): Note[] {
   let pool = notes;
 
   if (q.tags.length) pool = pool.filter((n) => q.tags.every((t) => n.tags.some((nt) => nt.includes(t))));
-  if (q.notebooks.length)
-    pool = pool.filter((n) => q.notebooks.some((nb) => n.notebook.includes(nb) || n.path.includes(nb)));
+  // 只按显示笔记本匹配：path 已经是 nb-xxxxxxxx 物理目录，拿它匹配会让
+  // 「in:工作」在改名后突然命中或漏掉一篇笔记。
+  if (q.notebooks.length) pool = pool.filter((n) => q.notebooks.some((nb) => n.notebook.includes(nb)));
   if (q.pinned) pool = pool.filter((n) => n.pinned);
   if (q.image) pool = pool.filter((n) => /!\[[^\]]*\]\([^)]*\)/.test(n.content));
   if (q.todo) pool = pool.filter((n) => /-\s\[ \]/.test(n.content));
